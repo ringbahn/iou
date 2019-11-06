@@ -1,6 +1,10 @@
 [package]
 name = "iou"
 version = "0.1.0"
+description = "io_uring bindings"
+repository = "https://github.com/withoutboats/iou"
+keywords = ["io_uring", "liburing", "async", "futures"]
+license = "MIT OR Apache-2.0"
 authors = ["Without Boats <boats@mozilla.com>"]
 edition = "2018"
 
