@@ -66,7 +66,7 @@ impl<'a> CompletionQueueEvent<'a> {
     }
 
     pub fn is_timeout(&self) -> bool {
-        self.cqe.user_data == iou_sys::LIBURING_UDATA_TIMEOUT
+        self.cqe.user_data == sys::LIBURING_UDATA_TIMEOUT
     }
 
     pub fn user_data(&self) -> u64 {
@@ -93,7 +93,7 @@ impl<'a> CompletionQueueEvent<'a> {
 impl<'a> Drop for CompletionQueueEvent<'a> {
     fn drop(&mut self) {
         unsafe {
-            sys::iouc_cqe_seen(self.ring.as_ptr());
+            sys::rust_io_uring_cq_advance(self.ring.as_ptr(), 1);
         }
     }
 }

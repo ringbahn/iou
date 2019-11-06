@@ -1,3 +1,0 @@
-[submodule "iou-sys/liburing"]
-	path = iou-sys/liburing
-	url = git://git.kernel.dk/liburing

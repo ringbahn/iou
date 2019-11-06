@@ -12,8 +12,8 @@ edition = "2018"
 libc = "0.2.65"
 bitflags = "1.2.0"
 
-[dependencies.iou-sys]
-version = "0.1.0"
-path = "./iou-sys"
+[dependencies.uring-sys]
+version = "1.0.0"
+git = "https://github.com/withoutboats/uring-sys"
 
 [workspace]
