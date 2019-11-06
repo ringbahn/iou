@@ -113,6 +113,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         self.sqe.addr = addr as _;
         self.sqe.len = len as _;
         self.sqe.buf_index.buf_index = buf_index as _;
+        self.sqe.flags |= SubmissionFlags::FIXED_FILE.bits();
     }
 
     #[inline]
@@ -147,6 +148,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         self.sqe.addr = addr as _;
         self.sqe.len = len as _;
         self.sqe.buf_index.buf_index = buf_index as _;
+        self.sqe.flags |= SubmissionFlags::FIXED_FILE.bits();
     }
 
     #[inline]
@@ -182,7 +184,7 @@ impl<'a> SubmissionQueueEvent<'a> {
 }
 
 bitflags::bitflags! {
-    pub struct SubmissionFlags: libc::c_uint {
+    pub struct SubmissionFlags: libc::__u8 {
         const FIXED_FILE    = 1 << 0;   /* use fixed fileset */
         const IO_DRAIN      = 1 << 1;   /* issue after inflight IO */
         const IO_LINK       = 1 << 2;   /* next IO depends on this one */
