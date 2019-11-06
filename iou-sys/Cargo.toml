@@ -1,0 +1,12 @@
+[package]
+name = "iou-sys"
+version = "0.1.0"
+authors = ["Without Boats <boats@mozilla.com>"]
+edition = "2018"
+links = "uring"
+
+[dependencies]
+libc = "0.2.65"
+
+[build-dependencies]
+cc = "1.0.46"
