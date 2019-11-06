@@ -15,5 +15,3 @@ bitflags = "1.2.0"
 [dependencies.uring-sys]
 version = "1.0.0"
 git = "https://github.com/withoutboats/uring-sys"
-
-[workspace]
