@@ -144,6 +144,14 @@ impl IoUring {
             }
         }
     }
+
+    pub fn raw(&self) -> &sys::io_uring {
+        &self.ring
+    }
+
+    pub fn raw_mut(&mut self) -> &mut sys::io_uring {
+        &mut self.ring
+    }
 }
 
 impl Drop for IoUring {

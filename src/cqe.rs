@@ -80,6 +80,14 @@ impl<'a> CompletionQueueEvent<'a> {
             Err(io::Error::from_raw_os_error(self.cqe.res as _))
         }
     }
+
+    pub fn raw(&self) -> &sys::io_uring_cqe {
+        self.cqe
+    }
+
+    pub fn raw_mut(&mut self) -> &mut sys::io_uring_cqe {
+        self.cqe
+    }
 }
 
 impl<'a> Drop for CompletionQueueEvent<'a> {
