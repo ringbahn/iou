@@ -1,7 +1,21 @@
+//! Idiomatic Rust bindings to liburing.
+//!
+//! This gives users an idiomatic Rust interface for interacting with the Linux kernel's `io_uring`
+//! interface for async IO. Despite being idiomatic Rust, this interface is still very low level
+//! and some fundamental operations remain unsafe.
+//!
+//! The core entry point to the API is the `IoUring` type, which manages an `io_uring` object for
+//! interfacing with the kernel. Using this, users can submit IO events and wait for their
+//! completion.
+//!
+//! It is also possible to "split" an `IoUring` instance into its constituent components - a
+//! `SubmissionQueue`, a `CompletionQueue`, and a `Registrar` - in order to operate on them
+//! separately without synchronization.
 mod cqe;
 mod sqe;
 mod registrar;
 
+#[doc(inline)]
 pub use uring_sys as sys;
 
 use std::io;
