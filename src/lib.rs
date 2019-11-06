@@ -2,7 +2,7 @@ mod cqe;
 mod sqe;
 mod registrar;
 
-use iou_sys as sys;
+pub use iou_sys as sys;
 
 use std::io;
 use std::mem::MaybeUninit;

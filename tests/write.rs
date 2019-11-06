@@ -30,7 +30,7 @@ fn write_test() -> io::Result<()> {
         unsafe {
             let mut sq = io_uring.sq();
             let mut sqe = sq.next_sqe().unwrap();
-            let mut bufs = [io::IoSlice::new(TEXT)];
+            let bufs = [io::IoSlice::new(TEXT)];
             sqe.prep_write_vectored(file.as_raw_fd(), &bufs, 0);
             sqe.set_user_data(0xDEADBEEF);
         }
