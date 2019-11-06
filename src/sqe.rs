@@ -183,14 +183,14 @@ impl<'a> SubmissionQueueEvent<'a> {
 
 bitflags::bitflags! {
     pub struct SubmissionFlags: libc::c_uint {
-        const IOSQE_FIXED_FILE  = 1 << 0;   /* use fixed fileset */
-        const IOSQE_IO_DRAIN    = 1 << 1;   /* issue after inflight IO */
-        const IOSQE_IO_LINK     = 1 << 2;   /* next IO depends on this one */
+        const FIXED_FILE    = 1 << 0;   /* use fixed fileset */
+        const IO_DRAIN      = 1 << 1;   /* issue after inflight IO */
+        const IO_LINK       = 1 << 2;   /* next IO depends on this one */
     }
 }
 
 bitflags::bitflags! {
     pub struct FsyncFlags: libc::c_uint {
-        const IORING_FSYNC_DATASYNC   = 1 << 0;
+        const FSYNC_DATASYNC    = 1 << 0;
     }
 }
