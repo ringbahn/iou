@@ -83,6 +83,9 @@ impl<'ring> SubmissionQueue<'ring> {
     }
 }
 
+unsafe impl<'ring> Send for SubmissionQueue<'ring> { }
+unsafe impl<'ring> Sync for SubmissionQueue<'ring> { }
+
 pub struct SubmissionQueueEvent<'a> {
     sqe: &'a mut sys::io_uring_sqe,
 }
@@ -218,6 +221,9 @@ impl<'a> SubmissionQueueEvent<'a> {
         &mut self.sqe
     }
 }
+
+unsafe impl<'a> Send for SubmissionQueueEvent<'a> { }
+unsafe impl<'a> Sync for SubmissionQueueEvent<'a> { }
 
 bitflags::bitflags! {
     pub struct SubmissionFlags: libc::__u8 {

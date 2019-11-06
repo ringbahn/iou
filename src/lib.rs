@@ -39,9 +39,6 @@ pub struct IoUring {
     ring: sys::io_uring,
 }
 
-unsafe impl Send for IoUring { }
-unsafe impl Sync for IoUring { }
-
 impl IoUring {
     pub fn new(entries: u32) -> io::Result<IoUring> {
         IoUring::new_with_flags(entries, SetupFlags::empty())
@@ -179,3 +176,6 @@ impl Drop for IoUring {
         unsafe { sys::io_uring_queue_exit(&mut self.ring) };
     }
 }
+
+unsafe impl Send for IoUring { }
+unsafe impl Sync for IoUring { }

@@ -93,3 +93,6 @@ impl<'ring> Registrar<'ring> {
         }
     }
 }
+
+unsafe impl<'ring> Send for Registrar<'ring> { }
+unsafe impl<'ring> Sync for Registrar<'ring> { }

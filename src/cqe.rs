@@ -55,6 +55,9 @@ impl<'ring> CompletionQueue<'ring> {
     }
 }
 
+unsafe impl<'ring> Send for CompletionQueue<'ring> { }
+unsafe impl<'ring> Sync for CompletionQueue<'ring> { }
+
 pub struct CompletionQueueEvent<'a> {
     ring: NonNull<sys::io_uring>,
     cqe: &'a mut sys::io_uring_cqe,
@@ -97,3 +100,6 @@ impl<'a> Drop for CompletionQueueEvent<'a> {
         }
     }
 }
+
+unsafe impl<'a> Send for CompletionQueueEvent<'a> { }
+unsafe impl<'a> Sync for CompletionQueueEvent<'a> { }
