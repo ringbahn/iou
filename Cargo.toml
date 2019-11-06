@@ -13,5 +13,5 @@ libc = "0.2.65"
 bitflags = "1.2.0"
 
 [dependencies.uring-sys]
-version = "1.0.0"
+version = "1.0.0-alpha"
 git = "https://github.com/withoutboats/uring-sys"
