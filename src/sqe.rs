@@ -3,15 +3,17 @@ use std::mem;
 use std::os::unix::io::RawFd;
 use std::ptr::{self, NonNull};
 use std::marker::PhantomData;
+use std::time::Duration;
 
 use super::{IoUring, sys};
 
-const IORING_OP_NOP:                libc::__u8 = 0;
-const IORING_OP_READV:              libc::__u8 = 1;
-const IORING_OP_WRITEV:             libc::__u8 = 2;
-const IORING_OP_FSYNC:              libc::__u8 = 3;
-const IORING_OP_READ_FIXED:         libc::__u8 = 4;
-const IORING_OP_WRITE_FIXED:        libc::__u8 = 5;
+const IORING_OP_NOP:            libc::__u8 = 0;
+const IORING_OP_READV:          libc::__u8 = 1;
+const IORING_OP_WRITEV:         libc::__u8 = 2;
+const IORING_OP_FSYNC:          libc::__u8 = 3;
+const IORING_OP_READ_FIXED:     libc::__u8 = 4;
+const IORING_OP_WRITE_FIXED:    libc::__u8 = 5;
+const IORING_OP_TIMEOUT:        libc::__u8 = 11;
 
 pub struct SubmissionQueue<'ring> {
     ring: NonNull<sys::io_uring>,
@@ -52,6 +54,31 @@ impl<'ring> SubmissionQueue<'ring> {
             Ok(ret as _)
         } else {
             Err(io::Error::from_raw_os_error(ret))
+        }
+    }
+
+    pub fn submit_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
+        -> io::Result<usize>
+    {
+        let ts = sys::__kernel_timespec {
+            tv_sec: duration.as_secs() as _,
+            tv_nsec: duration.subsec_nanos() as _
+        };
+
+        loop {
+            if let Some(mut sqe) = self.next_sqe() {
+                sqe.clear();
+                unsafe { sqe.prep_timeout(&ts); }
+                let ret = unsafe { sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) };
+
+                if ret >= 0 {
+                    return Ok(ret as _)
+                } else {
+                    return Err(io::Error::from_raw_os_error(ret))
+                }
+            }
+
+            self.submit()?;
         }
     }
 }
@@ -159,6 +186,15 @@ impl<'a> SubmissionQueueEvent<'a> {
         self.sqe.addr = 0;
         self.sqe.len = 0;
         self.sqe.cmd_flags.fsync_flags = flags.bits();
+    }
+
+    #[inline]
+    pub unsafe fn prep_timeout(&mut self, ts: &sys::__kernel_timespec) {
+        self.sqe.opcode = IORING_OP_TIMEOUT;
+        self.sqe.fd = 0;
+        self.sqe.addr = ts as *const _ as _;
+        self.sqe.len = 1;
+        self.sqe.user_data = sys::LIBURING_UDATA_TIMEOUT;
     }
 
     #[inline]

@@ -94,6 +94,12 @@ impl IoUring {
         self.sq().submit_and_wait(wait_for)
     }
 
+    pub fn submit_sqes_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
+        -> io::Result<usize>
+    {
+        self.sq().submit_and_wait_with_timeout(wait_for, duration)
+    }
+
     pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
