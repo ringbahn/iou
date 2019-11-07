@@ -21,3 +21,11 @@ as borrowed during the lifetime of the IO.
 
 [io_uring]: http://kernel.dk/io_uring.pdf
 [liburing]: http://git.kernel.dk/cgit/liburing/
+
+## Kernel support
+
+In order to use io_uring, the machine you are running your code on must have a
+kernel which supports that interface. The first version of io_uring was added
+in Linux 5.1, but it did not include all of the features supported by this
+library. Some features of this library may not work depending on which version
+of Linux you are using.
