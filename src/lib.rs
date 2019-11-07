@@ -11,6 +11,28 @@
 //! It is also possible to "split" an `IoUring` instance into its constituent components - a
 //! `SubmissionQueue`, a `CompletionQueue`, and a `Registrar` - in order to operate on them
 //! separately without synchronization.
+//!
+//! # Submitting events
+//!
+//! You can prepare new IO events using the `SubmissionQueueEvent` type. Once an event has been
+//! prepared, the next call to submit will submit that event. Eventually, those events will 
+//! complete, and that a `CompletionQueueEvent` will appear on the completion queue indicating that
+//! the event is complete.
+//!
+//! Preparing IO events is inherently unsafe, as you must guarantee that the buffers and file
+//! descriptors used for that IO are alive long enough for the kernel to perform the IO operation
+//! with them.
+//!
+//! # Timeouts
+//!
+//! Some APIs allow you to time out a call into the kernel. It's important to note how this works
+//! with io_uring.
+//!
+//! A timeout is submitted as an additional IO event which completes after the specified time.
+//! Therefore when you create a timeout, all that happens is that a completion event will appear
+//! after that specified time. This also means that when processing completion events, you need to
+//! be prepared for the possibility that the completion represents a timeout and not a normal IO
+//! event (`CompletionQueueEvent` has a method to check for this).
 mod cqe;
 mod sqe;
 mod registrar;
@@ -76,7 +98,9 @@ impl IoUring {
         unsafe {
             let sqe = sys::io_uring_get_sqe(&mut self.ring);
             if sqe != ptr::null_mut() {
-                Some(SubmissionQueueEvent::new(&mut *sqe))
+                let sqe = &mut *sqe;
+                sqe.clear();
+                Some(SubmissionQueueEvent::new(sqe))
             } else {
                 None
             }

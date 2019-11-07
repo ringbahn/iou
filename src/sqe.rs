@@ -32,7 +32,9 @@ impl<'ring> SubmissionQueue<'ring> {
         unsafe {
             let sqe = sys::io_uring_get_sqe(self.ring.as_ptr());
             if sqe != ptr::null_mut() {
-                Some(SubmissionQueueEvent::new(&mut *sqe))
+                let sqe = &mut *sqe;
+                sqe.clear();
+                Some(SubmissionQueueEvent::new(sqe))
             } else {
                 None
             }
