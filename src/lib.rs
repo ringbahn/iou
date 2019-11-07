@@ -28,7 +28,7 @@ pub use cqe::{CompletionQueue, CompletionQueueEvent};
 pub use registrar::Registrar;
 
 bitflags::bitflags! {
-    pub struct SetupFlags: libc::c_uint {
+    pub struct SetupFlags: u32 {
         const IOPOLL    = 1 << 0;   /* io_context is polled */
         const SQPOLL    = 1 << 1;   /* SQ poll thread */
         const SQ_AFF    = 1 << 2;   /* sq_thread_cpu is valid */

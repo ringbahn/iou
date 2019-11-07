@@ -9,6 +9,5 @@ authors = ["Without Boats <boats@mozilla.com>"]
 edition = "2018"
 
 [dependencies]
-libc = "0.2.65"
 bitflags = "1.2.0"
 uring-sys = "1.0.0-alpha"

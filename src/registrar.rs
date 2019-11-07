@@ -17,10 +17,10 @@ impl<'ring> Registrar<'ring> {
             _marker: PhantomData,
         }
     }
-    pub fn register_buffers(&self, buffers: &[io::IoSlice]) -> io::Result<()> {
+    pub fn register_buffers(&self, buffers: &[io::IoSlice<'_>]) -> io::Result<()> {
         let res = unsafe {
             let len = buffers.len();
-            let addr = buffers as *const [io::IoSlice] as *const libc::iovec;
+            let addr = buffers as *const [io::IoSlice<'_>] as *const _;
             sys::io_uring_register_buffers(self.ring.as_ptr(), addr, len as _)
         };
 

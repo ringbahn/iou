@@ -7,13 +7,13 @@ use std::time::Duration;
 
 use super::{IoUring, sys};
 
-const IORING_OP_NOP:            libc::__u8 = 0;
-const IORING_OP_READV:          libc::__u8 = 1;
-const IORING_OP_WRITEV:         libc::__u8 = 2;
-const IORING_OP_FSYNC:          libc::__u8 = 3;
-const IORING_OP_READ_FIXED:     libc::__u8 = 4;
-const IORING_OP_WRITE_FIXED:    libc::__u8 = 5;
-const IORING_OP_TIMEOUT:        libc::__u8 = 11;
+const IORING_OP_NOP:            u8  = 0;
+const IORING_OP_READV:          u8  = 1;
+const IORING_OP_WRITEV:         u8  = 2;
+const IORING_OP_FSYNC:          u8  = 3;
+const IORING_OP_READ_FIXED:     u8  = 4;
+const IORING_OP_WRITE_FIXED:    u8  = 5;
+const IORING_OP_TIMEOUT:        u8  = 11;
 
 pub struct SubmissionQueue<'ring> {
     ring: NonNull<sys::io_uring>,
@@ -119,8 +119,8 @@ impl<'a> SubmissionQueueEvent<'a> {
         offset: usize,
     ) {
         let len = bufs.len();
-        let addr = bufs as *mut [io::IoSliceMut<'_>] as *mut libc::iovec;
-        self.sqe.opcode = IORING_OP_READV;
+        let addr = bufs as *mut [io::IoSliceMut<'_>] as *mut io::IoSliceMut<'_>;
+        self.sqe.opcode = IORING_OP_READV as _;
         self.sqe.fd = fd;
         self.sqe.off_addr2.off = offset as _;
         self.sqe.addr = addr as _;
@@ -136,8 +136,8 @@ impl<'a> SubmissionQueueEvent<'a> {
         buf_index: usize,
     ) {
         let len = buf.len();
-        let addr = buf as *mut [u8] as *mut libc::c_void;
-        self.sqe.opcode = IORING_OP_READ_FIXED;
+        let addr = buf as *mut [u8] as *mut u8;
+        self.sqe.opcode = IORING_OP_READ_FIXED as _;
         self.sqe.fd = fd;
         self.sqe.off_addr2.off = offset as _;
         self.sqe.addr = addr as _;
@@ -154,8 +154,8 @@ impl<'a> SubmissionQueueEvent<'a> {
         offset: usize,
     ) {
         let len = bufs.len();
-        let addr = bufs as *const [io::IoSlice<'_>] as *const libc::iovec;
-        self.sqe.opcode = IORING_OP_WRITEV;
+        let addr = bufs as *const [io::IoSlice<'_>] as *const io::IoSlice<'_>;
+        self.sqe.opcode = IORING_OP_WRITEV as _;
         self.sqe.fd = fd;
         self.sqe.off_addr2.off = offset as _;
         self.sqe.addr = addr as _;
@@ -171,8 +171,8 @@ impl<'a> SubmissionQueueEvent<'a> {
         buf_index: usize,
     ) {
         let len = buf.len();
-        let addr = buf as *const [u8] as *const libc::c_void;
-        self.sqe.opcode = IORING_OP_WRITE_FIXED;
+        let addr = buf as *const [u8] as *const u8;
+        self.sqe.opcode = IORING_OP_WRITE_FIXED as _;
         self.sqe.fd = fd;
         self.sqe.off_addr2.off = offset as _;
         self.sqe.addr = addr as _;
@@ -183,19 +183,19 @@ impl<'a> SubmissionQueueEvent<'a> {
 
     #[inline]
     pub unsafe fn prep_fsync(&mut self, fd: RawFd, flags: FsyncFlags) {
-        self.sqe.opcode = IORING_OP_FSYNC;
+        self.sqe.opcode = IORING_OP_FSYNC as _;
         self.sqe.fd = fd;
         self.sqe.off_addr2.off = 0;
         self.sqe.addr = 0;
         self.sqe.len = 0;
-        self.sqe.cmd_flags.fsync_flags = flags.bits();
+        self.sqe.cmd_flags.fsync_flags = flags.bits() as _;
     }
 
     #[inline]
     pub unsafe fn prep_timeout(&mut self, ts: &sys::__kernel_timespec) {
-        self.sqe.opcode = IORING_OP_TIMEOUT;
+        self.sqe.opcode = IORING_OP_TIMEOUT as _;
         self.sqe.fd = 0;
-        self.sqe.addr = ts as *const _ as _;
+        self.sqe.addr = ts as *const sys::__kernel_timespec as _;
         self.sqe.len = 1;
         self.sqe.user_data = sys::LIBURING_UDATA_TIMEOUT;
     }
@@ -226,7 +226,7 @@ unsafe impl<'a> Send for SubmissionQueueEvent<'a> { }
 unsafe impl<'a> Sync for SubmissionQueueEvent<'a> { }
 
 bitflags::bitflags! {
-    pub struct SubmissionFlags: libc::__u8 {
+    pub struct SubmissionFlags: u8 {
         const FIXED_FILE    = 1 << 0;   /* use fixed fileset */
         const IO_DRAIN      = 1 << 1;   /* issue after inflight IO */
         const IO_LINK       = 1 << 2;   /* next IO depends on this one */
@@ -234,7 +234,7 @@ bitflags::bitflags! {
 }
 
 bitflags::bitflags! {
-    pub struct FsyncFlags: libc::c_uint {
+    pub struct FsyncFlags: u32 {
         const FSYNC_DATASYNC    = 1 << 0;
     }
 }
