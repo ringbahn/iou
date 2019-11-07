@@ -11,7 +11,4 @@ edition = "2018"
 [dependencies]
 libc = "0.2.65"
 bitflags = "1.2.0"
-
-[dependencies.uring-sys]
-version = "1.0.0-alpha"
-git = "https://github.com/withoutboats/uring-sys"
+uring-sys = "1.0.0-alpha"
