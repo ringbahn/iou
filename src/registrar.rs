@@ -20,7 +20,7 @@ impl<'ring> Registrar<'ring> {
     pub fn register_buffers(&self, buffers: &[io::IoSlice<'_>]) -> io::Result<()> {
         let res = unsafe {
             let len = buffers.len();
-            let addr = buffers as *const [io::IoSlice<'_>] as *const _;
+            let addr = buffers.as_ptr() as *const _;
             sys::io_uring_register_buffers(self.ring.as_ptr(), addr, len as _)
         };
 
@@ -46,7 +46,7 @@ impl<'ring> Registrar<'ring> {
     pub fn register_files(&self, files: &[RawFd]) -> io::Result<()> {
         let res = unsafe {
             let len = files.len();
-            let addr = files as *const [RawFd] as *const RawFd;
+            let addr = files.as_ptr();
             sys::io_uring_register_files(self.ring.as_ptr(), addr, len as _)
         };
 
