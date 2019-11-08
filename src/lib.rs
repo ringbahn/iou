@@ -36,9 +36,12 @@
 
 macro_rules! resultify {
     ($ret:expr) => {
-        match $ret >= 0 {
-            true    => Ok($ret as _),
-            false   => Err(io::Error::from_raw_os_error(-$ret)),
+        {
+            let ret = $ret;
+            match ret >= 0 {
+                true    => Ok(ret as _),
+                false   => Err(std::io::Error::from_raw_os_error(-ret)),
+            }
         }
     }
 }
@@ -255,3 +258,30 @@ impl Drop for IoUring {
 
 unsafe impl Send for IoUring { }
 unsafe impl Sync for IoUring { }
+
+// This has to live in an inline module to test the non-exported resultify macro.
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_resultify() {
+        let side_effect = |i, effect: &mut _| -> i32 {
+            *effect += 1;
+            return i;
+        };
+
+        let mut calls = 0;
+        let ret: Result<i32, _> = resultify!(side_effect(0, &mut calls));
+        assert!(match ret { Ok(0) => true, _ => false });
+        assert_eq!(calls, 1);
+
+        calls = 0;
+        let ret: Result<i32, _> = resultify!(side_effect(1, &mut calls));
+        assert!(match ret { Ok(1) => true, _ => false });
+        assert_eq!(calls, 1);
+
+        calls = 0;
+        let ret: Result<i32, _> = resultify!(side_effect(-1, &mut calls));
+        assert!(match ret { Err(e) if e.raw_os_error() == Some(1) => true, _ => false });
+        assert_eq!(calls, 1);
+    }
+}
