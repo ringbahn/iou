@@ -98,9 +98,9 @@ impl IoUring {
         unsafe {
             let sqe = sys::io_uring_get_sqe(&mut self.ring);
             if sqe != ptr::null_mut() {
-                let sqe = &mut *sqe;
+                let mut sqe = SubmissionQueueEvent::new(&mut *sqe);
                 sqe.clear();
-                Some(SubmissionQueueEvent::new(sqe))
+                Some(sqe)
             } else {
                 None
             }
