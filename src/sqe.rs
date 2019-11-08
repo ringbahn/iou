@@ -42,21 +42,11 @@ impl<'ring> SubmissionQueue<'ring> {
     }
 
     pub fn submit(&mut self) -> io::Result<usize> {
-        let ret = unsafe { sys::io_uring_submit(self.ring.as_ptr()) };
-        if ret >= 0 {
-            Ok(ret as _)
-        } else {
-            Err(io::Error::from_raw_os_error(ret))
-        }
+        resultify!(unsafe { sys::io_uring_submit(self.ring.as_ptr()) })
     }
 
     pub fn submit_and_wait(&mut self, wait_for: u32) -> io::Result<usize> {
-        let ret = unsafe { sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) };
-        if ret >= 0 {
-            Ok(ret as _)
-        } else {
-            Err(io::Error::from_raw_os_error(ret))
-        }
+        resultify!(unsafe { sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) })
     }
 
     pub fn submit_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
@@ -70,13 +60,9 @@ impl<'ring> SubmissionQueue<'ring> {
         loop {
             if let Some(mut sqe) = self.next_sqe() {
                 sqe.clear();
-                unsafe { sqe.prep_timeout(&ts); }
-                let ret = unsafe { sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) };
-
-                if ret >= 0 {
-                    return Ok(ret as _)
-                } else {
-                    return Err(io::Error::from_raw_os_error(ret))
+                unsafe {
+                    sqe.prep_timeout(&ts);
+                    return resultify!(sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
                 }
             }
 

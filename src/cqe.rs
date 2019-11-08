@@ -38,19 +38,15 @@ impl<'ring> CompletionQueue<'ring> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
-            let res = sys::io_uring_wait_cqes(
+            let _: i32 = resultify!(sys::io_uring_wait_cqes(
                 self.ring.as_ptr(),
                 cqe.as_mut_ptr(),
                 count as _,
                 ptr::null(),
                 ptr::null(),
-            );
+            ))?;
 
-            if res >= 0 {
-                Ok(CompletionQueueEvent::new(self.ring, &mut *cqe.assume_init()))
-            } else {
-                Err(io::Error::from_raw_os_error(res))
-            }
+            Ok(CompletionQueueEvent::new(self.ring, &mut *cqe.assume_init()))
         }
     }
 }

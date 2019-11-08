@@ -33,6 +33,16 @@
 //! after that specified time. This also means that when processing completion events, you need to
 //! be prepared for the possibility that the completion represents a timeout and not a normal IO
 //! event (`CompletionQueueEvent` has a method to check for this).
+
+macro_rules! resultify {
+    ($ret:expr) => {
+        match $ret >= 0 {
+            true    => Ok($ret as _),
+            false   => Err(io::Error::from_raw_os_error(-$ret)),
+        }
+    }
+}
+
 mod cqe;
 mod sqe;
 mod registrar;
@@ -69,12 +79,10 @@ impl IoUring {
     pub fn new_with_flags(entries: u32, flags: SetupFlags) -> io::Result<IoUring> {
         unsafe {
             let mut ring = MaybeUninit::uninit();
-            let ret = sys::io_uring_queue_init(entries as _, ring.as_mut_ptr(), flags.bits() as _);
-            if ret >= 0 {
-                Ok(IoUring { ring: ring.assume_init() })
-            } else {
-                Err(io::Error::from_raw_os_error(ret))
-            }
+            let _: i32 = resultify! {
+                sys::io_uring_queue_init(entries as _, ring.as_mut_ptr(), flags.bits() as _)
+            }?;
+            Ok(IoUring { ring: ring.assume_init() })
         }
     }
 
@@ -170,19 +178,15 @@ impl IoUring {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
-            let res = sys::io_uring_wait_cqes(
+            let _: i32 = resultify!(sys::io_uring_wait_cqes(
                 &mut self.ring,
                 cqe.as_mut_ptr(),
                 count,
                 ts,
                 ptr::null(),
-            );
+            ))?;
 
-            if res >= 0 {
-                Ok(CompletionQueueEvent::new(NonNull::from(&self.ring), &mut *cqe.assume_init()))
-            } else {
-                Err(io::Error::from_raw_os_error(res))
-            }
+            Ok(CompletionQueueEvent::new(NonNull::from(&self.ring), &mut *cqe.assume_init()))
         }
     }
 
