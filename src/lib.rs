@@ -67,15 +67,59 @@ bitflags::bitflags! {
     }
 }
 
+/// The main interface to kernel IO using `io_uring`.
+///
+/// `IoUring` is a high-level wrapper around an [`io_uring`](sys::io_uring) object.
+///
+/// `IoUring`s are constructed with a requested number of ring buffer entries and possibly a set of
+/// [`SetupFlags`](SetupFlags).
+/// ```
+/// # use std::io;
+/// # use iou::{IoUring, SetupFlags};
+/// # fn main() -> io::Result<()> {
+/// // make a IoUring with 16 entries
+/// let mut ring = IoUring::new(16)?;
+///
+/// // make a IoUring set to poll the IO context
+/// let mut ring = IoUring::new_with_flags(32, SetupFlags::IOPOLL)?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// `IoUring`s can either be used directly, or split into separate parts and
+/// operated on without synchronization.
+/// ```
+/// # use std::io;
+/// # use iou::{IoUring, SetupFlags, CompletionQueue, SubmissionQueue, Registrar};
+/// # fn main() -> io::Result<()> {
+/// # let mut ring = IoUring::new(32)?;
+/// // split an IoUring piecewise
+/// let sq: SubmissionQueue = ring.sq();
+/// let cq: CompletionQueue = ring.cq();
+/// let reg: Registrar = ring.registrar();
+///
+/// // split an IoUring into its three parts all at once
+/// let (sq, cq, reg) = ring.queues();
+/// # Ok(())
+/// # }
+/// ```
 pub struct IoUring {
     ring: sys::io_uring,
 }
 
 impl IoUring {
+    /// Creates a new `IoUring` without any setup flags.
+    ///
+    /// The number of entries must be in the range of 1..4096 (inclusive) and
+    /// it's recommended to be a power of two.
+    ///
+    /// The underlying `SubmissionQueue` and `CompletionQueue` will each have this number of
+    /// entries.
     pub fn new(entries: u32) -> io::Result<IoUring> {
         IoUring::new_with_flags(entries, SetupFlags::empty())
     }
 
+    /// Creates a new `IoUring` using a set of `SetupFlags` for advanced usage.
     pub fn new_with_flags(entries: u32, flags: SetupFlags) -> io::Result<IoUring> {
         unsafe {
             let mut ring = MaybeUninit::uninit();
@@ -86,18 +130,22 @@ impl IoUring {
         }
     }
 
+    /// Returns the `SubmissionQueue` part of the `IoUring`.
     pub fn sq(&mut self) -> SubmissionQueue<'_> {
         SubmissionQueue::new(&*self)
     }
 
+    /// Returns the `CompletionQueue` part of the `IoUring`.
     pub fn cq(&mut self) -> CompletionQueue<'_> {
         CompletionQueue::new(&*self)
     }
 
+    /// Returns the `Registrar` part of the `IoUring`.
     pub fn registrar(&self) -> Registrar<'_> {
         Registrar::new(self)
     }
 
+    /// Returns the three constituent parts of the `IoUring`.
     pub fn queues(&mut self) -> (SubmissionQueue<'_>, CompletionQueue<'_>, Registrar<'_>) {
         (SubmissionQueue::new(&*self), CompletionQueue::new(&*self), Registrar::new(&*self))
     }
