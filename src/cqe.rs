@@ -73,11 +73,7 @@ impl<'a> CompletionQueueEvent<'a> {
     }
 
     pub fn result(&self) -> io::Result<usize> {
-        if self.cqe.res >= 0 {
-            Ok(self.cqe.res as _)
-        } else {
-            Err(io::Error::from_raw_os_error(self.cqe.res as _))
-        }
+        resultify!(self.cqe.res)
     }
 
     pub fn raw(&self) -> &sys::io_uring_cqe {
