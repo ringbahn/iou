@@ -33,8 +33,8 @@ fn write_test() -> io::Result<()> {
             let bufs = [io::IoSlice::new(TEXT)];
             sqe.prep_write_vectored(file.as_raw_fd(), &bufs, 0);
             sqe.set_user_data(0xDEADBEEF);
+            io_uring.sq().submit()?;
         }
-        io_uring.sq().submit()?;
 
         let mut cq = io_uring.cq();
         let cqe = cq.wait_for_cqe()?;
