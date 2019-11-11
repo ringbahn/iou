@@ -107,7 +107,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         offset: usize,
     ) {
         let len = bufs.len();
-        let addr = bufs as *mut [io::IoSliceMut<'_>] as *mut io::IoSliceMut<'_>;
+        let addr = bufs.as_mut_ptr();
         self.sqe.opcode = IORING_OP_READV as _;
         self.sqe.fd = fd;
         self.sqe.off_addr2.off = offset as _;
@@ -124,7 +124,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         buf_index: usize,
     ) {
         let len = buf.len();
-        let addr = buf as *mut [u8] as *mut u8;
+        let addr = buf.as_mut_ptr();
         self.sqe.opcode = IORING_OP_READ_FIXED as _;
         self.sqe.fd = fd;
         self.sqe.off_addr2.off = offset as _;
@@ -142,7 +142,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         offset: usize,
     ) {
         let len = bufs.len();
-        let addr = bufs as *const [io::IoSlice<'_>] as *const io::IoSlice<'_>;
+        let addr = bufs.as_ptr();
         self.sqe.opcode = IORING_OP_WRITEV as _;
         self.sqe.fd = fd;
         self.sqe.off_addr2.off = offset as _;
@@ -159,7 +159,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         buf_index: usize,
     ) {
         let len = buf.len();
-        let addr = buf as *const [u8] as *const u8;
+        let addr = buf.as_ptr();
         self.sqe.opcode = IORING_OP_WRITE_FIXED as _;
         self.sqe.fd = fd;
         self.sqe.off_addr2.off = offset as _;
