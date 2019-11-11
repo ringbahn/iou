@@ -18,79 +18,49 @@ impl<'ring> Registrar<'ring> {
         }
     }
     pub fn register_buffers(&self, buffers: &[io::IoSlice<'_>]) -> io::Result<()> {
-        let res = unsafe {
-            let len = buffers.len();
-            let addr = buffers.as_ptr() as *const _;
+        let len = buffers.len();
+        let addr = buffers.as_ptr() as *const _;
+        let _: i32 = resultify!(unsafe {
             sys::io_uring_register_buffers(self.ring.as_ptr(), addr, len as _)
-        };
-
-        if res >= 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(res))
-        }
+        })?;
+        Ok(())
     }
 
     pub fn unregister_buffers(&self) -> io::Result<()> {
-        let res = unsafe {
+        let _: i32 = resultify!(unsafe {
             sys::io_uring_unregister_buffers(self.ring.as_ptr())
-        };
-
-        if res >= 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(res))
-        }
+        })?;
+        Ok(())
     }
 
     pub fn register_files(&self, files: &[RawFd]) -> io::Result<()> {
-        let res = unsafe {
-            let len = files.len();
-            let addr = files.as_ptr();
+        let len = files.len();
+        let addr = files.as_ptr();
+        let _: i32 = resultify!(unsafe {
             sys::io_uring_register_files(self.ring.as_ptr(), addr, len as _)
-        };
-
-        if res >= 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(res))
-        }
+        })?;
+        Ok(())
     }
 
     pub fn unregister_files(&self) -> io::Result<()> {
-        let res = unsafe {
+        let _: i32 = resultify!(unsafe {
             sys::io_uring_unregister_files(self.ring.as_ptr())
-        };
-
-        if res >= 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(res))
-        }
+        })?;
+        Ok(())
     }
 
     pub fn register_eventfd(&self, eventfd: RawFd) -> io::Result<()> {
-        let res = unsafe {
+        let _: i32 = resultify!(unsafe {
             sys::io_uring_register_eventfd(self.ring.as_ptr(), eventfd)
-        };
-
-        if res >= 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(res))
-        }
+        })?;
+        Ok(())
     }
 
     pub fn unregister_eventfd(&self) -> io::Result<()> {
-        let res = unsafe {
+        let _: i32 = resultify!(unsafe {
             sys::io_uring_unregister_eventfd(self.ring.as_ptr())
-        };
-
-        if res >= 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(res))
-        }
+        })?;
+        Ok(())
     }
 }
 
