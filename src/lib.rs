@@ -183,10 +183,13 @@ impl IoUring {
     pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
-            sys::io_uring_peek_batch_cqe(&mut self.ring, cqe.as_mut_ptr(), 1);
-            let cqe = cqe.assume_init();
-            if cqe != ptr::null_mut() {
-                Some(CompletionQueueEvent::new(NonNull::from(&self.ring), &mut *cqe))
+            let count = sys::io_uring_peek_batch_cqe(&mut self.ring, cqe.as_mut_ptr(), 1);
+
+            if count > 0 {
+                Some(CompletionQueueEvent::new(NonNull::from(
+                    &self.ring),
+                    &mut *cqe.assume_init()
+                ))
             } else {
                 None
             }
