@@ -131,7 +131,6 @@ impl<'a> SubmissionQueueEvent<'a> {
         self.sqe.addr = addr as _;
         self.sqe.len = len as _;
         self.sqe.buf_index.buf_index = buf_index as _;
-        self.sqe.flags |= SubmissionFlags::FIXED_FILE.bits();
     }
 
     #[inline]
@@ -166,7 +165,6 @@ impl<'a> SubmissionQueueEvent<'a> {
         self.sqe.addr = addr as _;
         self.sqe.len = len as _;
         self.sqe.buf_index.buf_index = buf_index as _;
-        self.sqe.flags |= SubmissionFlags::FIXED_FILE.bits();
     }
 
     #[inline]
