@@ -15,7 +15,7 @@
 //! # Submitting events
 //!
 //! You can prepare new IO events using the `SubmissionQueueEvent` type. Once an event has been
-//! prepared, the next call to submit will submit that event. Eventually, those events will 
+//! prepared, the next call to submit will submit that event. Eventually, those events will
 //! complete, and that a `CompletionQueueEvent` will appear on the completion queue indicating that
 //! the event is complete.
 //!
@@ -65,7 +65,7 @@ pub use registrar::Registrar;
 bitflags::bitflags! {
     /// `IoUring` initialization flags for advanced use cases.
     ///
-    /// ```
+    /// ```no_run
     /// # use std::io;
     /// # use iou::{IoUring, SetupFlags};
     /// # fn main() -> io::Result<()> {
@@ -87,7 +87,7 @@ bitflags::bitflags! {
     pub struct SetupFlags: u32 {
         /// Poll the IO context instead of defaulting to interrupts.
         const IOPOLL    = 1 << 0;   /* io_context is polled */
-        /// Assign a kernel thread to poll the submission queue.
+        /// Assign a kernel thread to poll the submission queue. Requires elevated privileges to set.
         const SQPOLL    = 1 << 1;   /* SQ poll thread */
         /// Force the kernel thread created with `SQPOLL` to be bound to the CPU used by the
         /// `SubmissionQueue`. Requires `SQPOLL` set.
