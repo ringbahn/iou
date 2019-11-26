@@ -15,7 +15,7 @@
 //! # Submitting events
 //!
 //! You can prepare new IO events using the `SubmissionQueueEvent` type. Once an event has been
-//! prepared, the next call to submit will submit that event. Eventually, those events will 
+//! prepared, the next call to submit will submit that event. Eventually, those events will
 //! complete, and that a `CompletionQueueEvent` will appear on the completion queue indicating that
 //! the event is complete.
 //!
@@ -63,9 +63,34 @@ pub use cqe::{CompletionQueue, CompletionQueueEvent};
 pub use registrar::Registrar;
 
 bitflags::bitflags! {
+    /// `IoUring` initialization flags for advanced use cases.
+    ///
+    /// ```no_run
+    /// # use std::io;
+    /// # use iou::{IoUring, SetupFlags};
+    /// # fn main() -> io::Result<()> {
+    /// // specify polled IO
+    /// let mut ring = IoUring::new_with_flags(32, SetupFlags::IOPOLL)?;
+    ///
+    /// // assign a kernel thread to poll the submission queue
+    /// let mut ring = IoUring::new_with_flags(8, SetupFlags::SQPOLL)?;
+    ///
+    /// // force the kernel thread to use the same cpu as the submission queue
+    /// let mut ring = IoUring::new_with_flags(8,
+    ///     SetupFlags::IOPOLL | SetupFlags::SQPOLL | SetupFlags::SQ_AFF)?;
+    ///
+    /// // setting `SQ_AFF` without `SQPOLL` is an error
+    /// assert!(IoUring::new_with_flags(8, SetupFlags::SQ_AFF).is_err());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub struct SetupFlags: u32 {
+        /// Poll the IO context instead of defaulting to interrupts.
         const IOPOLL    = 1 << 0;   /* io_context is polled */
+        /// Assign a kernel thread to poll the submission queue. Requires elevated privileges to set.
         const SQPOLL    = 1 << 1;   /* SQ poll thread */
+        /// Force the kernel thread created with `SQPOLL` to be bound to the CPU used by the
+        /// `SubmissionQueue`. Requires `SQPOLL` set.
         const SQ_AFF    = 1 << 2;   /* sq_thread_cpu is valid */
     }
 }
@@ -75,7 +100,9 @@ bitflags::bitflags! {
 /// `IoUring` is a high-level wrapper around an [`io_uring`](sys::io_uring) object.
 ///
 /// `IoUring`s are constructed with a requested number of ring buffer entries and possibly a set of
-/// [`SetupFlags`](SetupFlags).
+/// [`SetupFlags`](SetupFlags). Allocations for `IoUring` are `memlocked` and will not be paged
+/// out.
+///
 /// ```
 /// # use std::io;
 /// # use iou::{IoUring, SetupFlags};
@@ -111,7 +138,8 @@ pub struct IoUring {
 }
 
 impl IoUring {
-    /// Creates a new `IoUring` without any setup flags.
+    /// Creates a new `IoUring` without any setup flags. `IoUring`'s created using this method will
+    /// use interrupt-driven IO.
     ///
     /// The number of entries must be in the range of 1..4096 (inclusive) and
     /// it's recommended to be a power of two.
@@ -122,7 +150,7 @@ impl IoUring {
         IoUring::new_with_flags(entries, SetupFlags::empty())
     }
 
-    /// Creates a new `IoUring` using a set of `SetupFlags` for advanced usage.
+    /// Creates a new `IoUring` using a set of `SetupFlags` for advanced use cases.
     pub fn new_with_flags(entries: u32, flags: SetupFlags) -> io::Result<IoUring> {
         unsafe {
             let mut ring = MaybeUninit::uninit();
