@@ -52,7 +52,7 @@ mod registrar;
 
 use std::io;
 use std::mem::MaybeUninit;
-use std::ptr::{self, NonNull};
+use std::ptr;
 use std::time::Duration;
 
 pub use sqe::{SubmissionQueue, SubmissionQueueEvent, SubmissionFlags, FsyncFlags};
@@ -211,10 +211,7 @@ impl IoUring {
             let count = uring_sys::io_uring_peek_batch_cqe(&mut self.ring, cqe.as_mut_ptr(), 1);
 
             if count > 0 {
-                Some(CompletionQueueEvent::new(NonNull::from(
-                    &self.ring),
-                    &mut *cqe.assume_init()
-                ))
+                Some(CompletionQueueEvent::new(&mut self.ring, &mut *cqe.assume_init()))
             } else {
                 None
             }
@@ -265,7 +262,7 @@ impl IoUring {
                 ptr::null(),
             ))?;
 
-            Ok(CompletionQueueEvent::new(NonNull::from(&self.ring), &mut *cqe.assume_init()))
+            Ok(CompletionQueueEvent::new(&mut self.ring, &mut *cqe.assume_init()))
         }
     }
 
