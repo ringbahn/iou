@@ -52,11 +52,11 @@ mod registrar;
 
 use std::io;
 use std::mem::MaybeUninit;
-use std::ptr;
+use std::ptr::{self, NonNull};
 use std::time::Duration;
 
 pub use sqe::{SubmissionQueue, SubmissionQueueEvent, SubmissionFlags, FsyncFlags};
-pub use cqe::{CompletionQueue, CompletionQueueEvent};
+pub use cqe::{CompletionQueue, CompletionQueueEvent, CompletionQueueEvents};
 pub use registrar::Registrar;
 
 bitflags::bitflags! {
@@ -205,65 +205,66 @@ impl IoUring {
         self.sq().submit_and_wait_with_timeout(wait_for, duration)
     }
 
+    /// Check if a CompletionQueueEvent is ready, without blocking.
+    ///
+    /// If there is at least one CompletionQueueEvent ready on the queue, this
+    /// will return it. If there aren't any ready, it will return `None`.
     pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
-        unsafe {
-            let mut cqe = MaybeUninit::uninit();
-            let count = uring_sys::io_uring_peek_batch_cqe(&mut self.ring, cqe.as_mut_ptr(), 1);
-
-            if count > 0 {
-                Some(CompletionQueueEvent::new(&mut self.ring, &mut *cqe.assume_init()))
-            } else {
-                None
-            }
-        }
+        unsafe { cqe::peek_for_one(NonNull::from(&mut self.ring)) }
     }
 
+    /// Wait for at least one CompletionQueueEvent to be ready, blocking this thread.
+    ///
+    /// This performs a blocking call to wait for CompletionQueueEvents to be ready
+    /// on the completion queue, then returns the first of those. There may be more
+    /// events ready after, which you can check with the `peek` methods.
     pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent<'_>> {
-        self.inner_wait_for_cqes(1, ptr::null())
+        unsafe { cqe::wait_for_one(NonNull::from(&mut self.ring), ptr::null()) }
     }
 
+    /// Wait for at least one CompletionQueueEvent to be ready, blocking with a
+    /// timeout.
+    ///
+    /// This is like `wait_for_cqe`, except that the blocking call can timeout.
+    /// Timeouts are implemented by submitting a special "timeout" event to the
+    /// IoUring. You will know if the call has timed out by checking the
+    /// `is_timeout` method on the CompletionQueueEvent you receive from this
+    /// method.
     pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
         -> io::Result<CompletionQueueEvent<'_>>
     {
-        let ts = uring_sys::__kernel_timespec {
-            tv_sec: duration.as_secs() as _,
-            tv_nsec: duration.subsec_nanos() as _
-        };
-
-        self.inner_wait_for_cqes(1, &ts)
+        unsafe { cqe::wait_for_one(NonNull::from(&mut self.ring), &timespec(duration)) }
     }
 
-    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvent<'_>> {
-        self.inner_wait_for_cqes(count as _, ptr::null())
+    /// Check if any CompletionQueueEvents are ready, without blocking.
+    ///
+    /// This returns CompletionQueueEvents type, which acts like an iterator of
+    /// events (though it doesn't implement Iterator unfortunately). It will
+    /// keep yielding events until there are none left to yield.
+    pub fn peek_for_cqes(&mut self) -> CompletionQueueEvents<'_> {
+        unsafe { CompletionQueueEvents::peek(NonNull::from(&mut self.ring)) }
+    }
+
+    /// Wait for at least `count` CompletionQueueEvents to be ready, blocking
+    /// this thread.
+    ///
+    /// This returns CompletionQueueEvents type, which acts like an iterator of
+    /// events (though it doesn't implement Iterator unfortunately). It will
+    /// keep yielding events until there are none left to yield.
+    ///
+    /// That means that this will yield at least `count` CompletionQueueEvents,
+    /// but it may also yield more than that.
+    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvents<'_>> {
+        let ring = NonNull::from(&mut self.ring);
+        unsafe { CompletionQueueEvents::wait(ring, count, ptr::null()) }
     }
 
     pub fn wait_for_cqes_with_timeout(&mut self, count: usize, duration: Duration)
-        -> io::Result<CompletionQueueEvent<'_>>
+        -> io::Result<CompletionQueueEvents<'_>>
     {
-        let ts = uring_sys::__kernel_timespec {
-            tv_sec: duration.as_secs() as _,
-            tv_nsec: duration.subsec_nanos() as _
-        };
-
-        self.inner_wait_for_cqes(count as _, &ts)
-    }
-
-    fn inner_wait_for_cqes(&mut self, count: u32, ts: *const uring_sys::__kernel_timespec)
-        -> io::Result<CompletionQueueEvent<'_>>
-    {
-        unsafe {
-            let mut cqe = MaybeUninit::uninit();
-
-            let _: i32 = resultify!(uring_sys::io_uring_wait_cqes(
-                &mut self.ring,
-                cqe.as_mut_ptr(),
-                count,
-                ts,
-                ptr::null(),
-            ))?;
-
-            Ok(CompletionQueueEvent::new(&mut self.ring, &mut *cqe.assume_init()))
-        }
+        let ring = NonNull::from(&mut self.ring);
+        let ts = timespec(duration);
+        unsafe { CompletionQueueEvents::wait(ring, count, &ts) }
     }
 
     pub fn raw(&self) -> &uring_sys::io_uring {
@@ -308,5 +309,13 @@ mod tests {
         let ret: Result<i32, _> = resultify!(side_effect(-1, &mut calls));
         assert!(match ret { Err(e) if e.raw_os_error() == Some(1) => true, _ => false });
         assert_eq!(calls, 1);
+    }
+}
+
+#[inline(always)]
+fn timespec(duration: Duration) -> uring_sys::__kernel_timespec {
+    uring_sys::__kernel_timespec {
+        tv_sec: duration.as_secs() as _,
+        tv_nsec: duration.subsec_nanos() as _
     }
 }

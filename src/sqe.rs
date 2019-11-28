@@ -102,10 +102,7 @@ impl<'ring> SubmissionQueue<'ring> {
     pub fn submit_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
         -> io::Result<usize>
     {
-        let ts = uring_sys::__kernel_timespec {
-            tv_sec: duration.as_secs() as _,
-            tv_nsec: duration.subsec_nanos() as _
-        };
+        let ts = crate::timespec(duration);
 
         loop {
             if let Some(mut sqe) = self.next_sqe() {
