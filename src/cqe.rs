@@ -5,6 +5,11 @@ use std::ptr::{self, NonNull};
 
 use super::IoUring;
 
+/// The queue of completed IO events.
+///
+/// Each element is a [`CompletionQueueEvent`](crate::cqe::CompletionQueueEvent).
+///
+/// Completion does not imply success. Completed events may be [timeouts](crate::cqe::CompletionQueueEvent::is_timeout).
 pub struct CompletionQueue<'ring> {
     ring: NonNull<uring_sys::io_uring>,
     _marker: PhantomData<&'ring mut IoUring>,
@@ -54,6 +59,7 @@ impl<'ring> CompletionQueue<'ring> {
 unsafe impl<'ring> Send for CompletionQueue<'ring> { }
 unsafe impl<'ring> Sync for CompletionQueue<'ring> { }
 
+/// A completed IO event.
 pub struct CompletionQueueEvent<'a> {
     ring: NonNull<uring_sys::io_uring>,
     cqe: &'a mut uring_sys::io_uring_cqe,
@@ -64,6 +70,29 @@ impl<'a> CompletionQueueEvent<'a> {
         CompletionQueueEvent { ring, cqe }
     }
 
+    /// Check whether this event is a timeout.
+    /// ```
+    /// # use iou::{IoUring, SubmissionQueueEvent};
+    /// # use iou::sys;
+    /// # fn main() -> std::io::Result<()> {
+    /// # let mut ring = IoUring::new(16)?;
+    /// # let mut sqe = ring.next_sqe().unwrap();
+    /// #
+    /// # // make a timeout
+    /// # let timeout_spec: _ = sys::__kernel_timespec {
+    /// #     tv_sec:  0 as _,
+    /// #     tv_nsec: 2e8 as _,
+    /// # };
+    /// #
+    /// unsafe { sqe.prep_timeout(&timeout_spec); }
+    ///
+    /// ring.submit_sqes()?;
+    ///
+    /// let cq_event = ring.wait_for_cqe()?;
+    /// assert!(cq_event.is_timeout());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn is_timeout(&self) -> bool {
         self.cqe.user_data == uring_sys::LIBURING_UDATA_TIMEOUT
     }
