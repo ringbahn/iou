@@ -73,22 +73,17 @@ impl<'a> CompletionQueueEvent<'a> {
     /// Check whether this event is a timeout.
     /// ```
     /// # use iou::{IoUring, SubmissionQueueEvent};
-    /// # use iou::sys;
     /// # fn main() -> std::io::Result<()> {
-    /// # let mut ring = IoUring::new(16)?;
+    /// # let mut ring = IoUring::new(2)?;
     /// # let mut sqe = ring.next_sqe().unwrap();
     /// #
-    /// # // make a timeout
-    /// # let timeout_spec: _ = sys::__kernel_timespec {
-    /// #     tv_sec:  0 as _,
-    /// #     tv_nsec: 2e8 as _,
-    /// # };
+    /// # // make a fake timeout with a nop for testing
+    /// # unsafe { sqe.prep_nop(); }
+    /// # ring.submit_sqes()?;
     /// #
-    /// unsafe { sqe.prep_timeout(&timeout_spec); }
-    ///
-    /// ring.submit_sqes()?;
-    ///
-    /// let cq_event = ring.wait_for_cqe()?;
+    /// # let mut cq_event;
+    /// cq_event = ring.wait_for_cqe()?;
+    /// # cq_event.raw_mut().user_data = uring_sys::LIBURING_UDATA_TIMEOUT;
     /// assert!(cq_event.is_timeout());
     /// # Ok(())
     /// # }
