@@ -88,7 +88,7 @@ impl<'a> CompletionQueueEvent<'a> {
 impl<'a> Drop for CompletionQueueEvent<'a> {
     fn drop(&mut self) {
         unsafe {
-            sys::rust_io_uring_cq_advance(self.ring.as_ptr(), 1);
+            sys::io_uring_cqe_seen(self.ring.as_ptr(), self.cqe);
         }
     }
 }
