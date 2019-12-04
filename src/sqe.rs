@@ -7,14 +7,6 @@ use std::time::Duration;
 
 use super::{IoUring, sys};
 
-const IORING_OP_NOP:            u8  = 0;
-const IORING_OP_READV:          u8  = 1;
-const IORING_OP_WRITEV:         u8  = 2;
-const IORING_OP_FSYNC:          u8  = 3;
-const IORING_OP_READ_FIXED:     u8  = 4;
-const IORING_OP_WRITE_FIXED:    u8  = 5;
-const IORING_OP_TIMEOUT:        u8  = 11;
-
 pub struct SubmissionQueue<'ring> {
     ring: NonNull<sys::io_uring>,
     _marker: PhantomData<&'ring mut IoUring>,
@@ -108,11 +100,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = bufs.len();
         let addr = bufs.as_mut_ptr();
-        self.sqe.opcode = IORING_OP_READV as _;
-        self.sqe.fd = fd;
-        self.sqe.off_addr2.off = offset as _;
-        self.sqe.addr = addr as _;
-        self.sqe.len = len as _;
+        sys::io_uring_prep_readv(self.sqe, fd, addr as _, len as _, offset as _);
     }
 
     #[inline]
@@ -125,12 +113,12 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = buf.len();
         let addr = buf.as_mut_ptr();
-        self.sqe.opcode = IORING_OP_READ_FIXED as _;
-        self.sqe.fd = fd;
-        self.sqe.off_addr2.off = offset as _;
-        self.sqe.addr = addr as _;
-        self.sqe.len = len as _;
-        self.sqe.buf_index.buf_index = buf_index as _;
+        sys::io_uring_prep_read_fixed(self.sqe,
+                                      fd,
+                                      addr as _,
+                                      len as _,
+                                      offset as _,
+                                      buf_index as _);
     }
 
     #[inline]
@@ -142,11 +130,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = bufs.len();
         let addr = bufs.as_ptr();
-        self.sqe.opcode = IORING_OP_WRITEV as _;
-        self.sqe.fd = fd;
-        self.sqe.off_addr2.off = offset as _;
-        self.sqe.addr = addr as _;
-        self.sqe.len = len as _;
+        sys::io_uring_prep_writev(self.sqe, fd, addr as _, len as _, offset as _);
     }
 
     #[inline]
@@ -159,40 +143,39 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = buf.len();
         let addr = buf.as_ptr();
-        self.sqe.opcode = IORING_OP_WRITE_FIXED as _;
-        self.sqe.fd = fd;
-        self.sqe.off_addr2.off = offset as _;
-        self.sqe.addr = addr as _;
-        self.sqe.len = len as _;
-        self.sqe.buf_index.buf_index = buf_index as _;
+        sys::io_uring_prep_write_fixed(self.sqe,
+                                       fd, addr as _,
+                                       len as _,
+                                       offset as _,
+                                       buf_index as _);
     }
 
     #[inline]
     pub unsafe fn prep_fsync(&mut self, fd: RawFd, flags: FsyncFlags) {
-        self.sqe.opcode = IORING_OP_FSYNC as _;
-        self.sqe.fd = fd;
-        self.sqe.off_addr2.off = 0;
-        self.sqe.addr = 0;
-        self.sqe.len = 0;
-        self.sqe.cmd_flags.fsync_flags = flags.bits() as _;
+        sys::io_uring_prep_fsync(self.sqe, fd, flags.bits() as _);
     }
 
     #[inline]
     pub unsafe fn prep_timeout(&mut self, ts: &sys::__kernel_timespec) {
-        self.sqe.opcode = IORING_OP_TIMEOUT as _;
-        self.sqe.fd = 0;
-        self.sqe.addr = ts as *const sys::__kernel_timespec as _;
-        self.sqe.len = 1;
-        self.sqe.user_data = sys::LIBURING_UDATA_TIMEOUT;
+        self.prep_timeout_with_flags(ts, 0, TimeoutFlags::empty());
+    }
+
+    #[inline]
+    pub unsafe fn prep_timeout_with_flags(
+        &mut self,
+        ts: &sys::__kernel_timespec,
+        count: usize,
+        flags: TimeoutFlags,
+    ) {
+        sys::io_uring_prep_timeout(self.sqe,
+                                   ts as *const _ as *mut _,
+                                   count as _,
+                                   flags.bits() as _);
     }
 
     #[inline]
     pub unsafe fn prep_nop(&mut self) {
-        self.sqe.opcode = IORING_OP_NOP;
-        self.sqe.fd = 0;
-        self.sqe.off_addr2.off = 0;
-        self.sqe.addr = 0;
-        self.sqe.len = 0;
+        sys::io_uring_prep_nop(self.sqe);
     }
 
     pub fn clear(&mut self) {
@@ -222,5 +205,11 @@ bitflags::bitflags! {
 bitflags::bitflags! {
     pub struct FsyncFlags: u32 {
         const FSYNC_DATASYNC    = 1 << 0;
+    }
+}
+
+bitflags::bitflags! {
+    pub struct TimeoutFlags: u32 {
+        const TIMEOUT_ABS   = 1 << 0;
     }
 }
