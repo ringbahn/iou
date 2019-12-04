@@ -5,10 +5,10 @@ use std::ptr::{self, NonNull};
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use super::{IoUring, sys};
+use super::IoUring;
 
 pub struct SubmissionQueue<'ring> {
-    ring: NonNull<sys::io_uring>,
+    ring: NonNull<uring_sys::io_uring>,
     _marker: PhantomData<&'ring mut IoUring>,
 }
 
@@ -22,7 +22,7 @@ impl<'ring> SubmissionQueue<'ring> {
 
     pub fn next_sqe<'a>(&'a mut self) -> Option<SubmissionQueueEvent<'a>> {
         unsafe {
-            let sqe = sys::io_uring_get_sqe(self.ring.as_ptr());
+            let sqe = uring_sys::io_uring_get_sqe(self.ring.as_ptr());
             if sqe != ptr::null_mut() {
                 let mut sqe = SubmissionQueueEvent::new(&mut *sqe);
                 sqe.clear();
@@ -34,17 +34,17 @@ impl<'ring> SubmissionQueue<'ring> {
     }
 
     pub fn submit(&mut self) -> io::Result<usize> {
-        resultify!(unsafe { sys::io_uring_submit(self.ring.as_ptr()) })
+        resultify!(unsafe { uring_sys::io_uring_submit(self.ring.as_ptr()) })
     }
 
     pub fn submit_and_wait(&mut self, wait_for: u32) -> io::Result<usize> {
-        resultify!(unsafe { sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) })
+        resultify!(unsafe { uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) })
     }
 
     pub fn submit_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
         -> io::Result<usize>
     {
-        let ts = sys::__kernel_timespec {
+        let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
             tv_nsec: duration.subsec_nanos() as _
         };
@@ -54,7 +54,7 @@ impl<'ring> SubmissionQueue<'ring> {
                 sqe.clear();
                 unsafe {
                     sqe.prep_timeout(&ts);
-                    return resultify!(sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
+                    return resultify!(uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
                 }
             }
 
@@ -67,11 +67,11 @@ unsafe impl<'ring> Send for SubmissionQueue<'ring> { }
 unsafe impl<'ring> Sync for SubmissionQueue<'ring> { }
 
 pub struct SubmissionQueueEvent<'a> {
-    sqe: &'a mut sys::io_uring_sqe,
+    sqe: &'a mut uring_sys::io_uring_sqe,
 }
 
 impl<'a> SubmissionQueueEvent<'a> {
-    pub(crate) fn new(sqe: &'a mut sys::io_uring_sqe) -> SubmissionQueueEvent<'a> {
+    pub(crate) fn new(sqe: &'a mut uring_sys::io_uring_sqe) -> SubmissionQueueEvent<'a> {
         SubmissionQueueEvent { sqe }
     }
 
@@ -100,7 +100,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = bufs.len();
         let addr = bufs.as_mut_ptr();
-        sys::io_uring_prep_readv(self.sqe, fd, addr as _, len as _, offset as _);
+        uring_sys::io_uring_prep_readv(self.sqe, fd, addr as _, len as _, offset as _);
     }
 
     #[inline]
@@ -113,7 +113,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = buf.len();
         let addr = buf.as_mut_ptr();
-        sys::io_uring_prep_read_fixed(self.sqe,
+        uring_sys::io_uring_prep_read_fixed(self.sqe,
                                       fd,
                                       addr as _,
                                       len as _,
@@ -130,7 +130,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = bufs.len();
         let addr = bufs.as_ptr();
-        sys::io_uring_prep_writev(self.sqe, fd, addr as _, len as _, offset as _);
+        uring_sys::io_uring_prep_writev(self.sqe, fd, addr as _, len as _, offset as _);
     }
 
     #[inline]
@@ -143,7 +143,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = buf.len();
         let addr = buf.as_ptr();
-        sys::io_uring_prep_write_fixed(self.sqe,
+        uring_sys::io_uring_prep_write_fixed(self.sqe,
                                        fd, addr as _,
                                        len as _,
                                        offset as _,
@@ -152,22 +152,22 @@ impl<'a> SubmissionQueueEvent<'a> {
 
     #[inline]
     pub unsafe fn prep_fsync(&mut self, fd: RawFd, flags: FsyncFlags) {
-        sys::io_uring_prep_fsync(self.sqe, fd, flags.bits() as _);
+        uring_sys::io_uring_prep_fsync(self.sqe, fd, flags.bits() as _);
     }
 
     #[inline]
-    pub unsafe fn prep_timeout(&mut self, ts: &sys::__kernel_timespec) {
+    pub unsafe fn prep_timeout(&mut self, ts: &uring_sys::__kernel_timespec) {
         self.prep_timeout_with_flags(ts, 0, TimeoutFlags::empty());
     }
 
     #[inline]
     pub unsafe fn prep_timeout_with_flags(
         &mut self,
-        ts: &sys::__kernel_timespec,
+        ts: &uring_sys::__kernel_timespec,
         count: usize,
         flags: TimeoutFlags,
     ) {
-        sys::io_uring_prep_timeout(self.sqe,
+        uring_sys::io_uring_prep_timeout(self.sqe,
                                    ts as *const _ as *mut _,
                                    count as _,
                                    flags.bits() as _);
@@ -175,18 +175,18 @@ impl<'a> SubmissionQueueEvent<'a> {
 
     #[inline]
     pub unsafe fn prep_nop(&mut self) {
-        sys::io_uring_prep_nop(self.sqe);
+        uring_sys::io_uring_prep_nop(self.sqe);
     }
 
     pub fn clear(&mut self) {
         *self.sqe = unsafe { mem::zeroed() };
     }
 
-    pub fn raw(&self) -> &sys::io_uring_sqe {
+    pub fn raw(&self) -> &uring_sys::io_uring_sqe {
         &self.sqe
     }
 
-    pub fn raw_mut(&mut self) -> &mut sys::io_uring_sqe {
+    pub fn raw_mut(&mut self) -> &mut uring_sys::io_uring_sqe {
         &mut self.sqe
     }
 }

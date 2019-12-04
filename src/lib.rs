@@ -50,9 +50,6 @@ mod cqe;
 mod sqe;
 mod registrar;
 
-#[doc(inline)]
-pub use uring_sys as sys;
-
 use std::io;
 use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
@@ -97,7 +94,7 @@ bitflags::bitflags! {
 
 /// The main interface to kernel IO using `io_uring`.
 ///
-/// `IoUring` is a high-level wrapper around an [`io_uring`](sys::io_uring) object.
+/// `IoUring` is a high-level wrapper around an [`io_uring`](uring_sys::io_uring) object.
 ///
 /// `IoUring`s are constructed with a requested number of ring buffer entries and possibly a set of
 /// [`SetupFlags`](SetupFlags). Allocations for `IoUring` are `memlocked` and will not be paged
@@ -134,7 +131,7 @@ bitflags::bitflags! {
 /// # }
 /// ```
 pub struct IoUring {
-    ring: sys::io_uring,
+    ring: uring_sys::io_uring,
 }
 
 impl IoUring {
@@ -155,7 +152,7 @@ impl IoUring {
         unsafe {
             let mut ring = MaybeUninit::uninit();
             let _: i32 = resultify! {
-                sys::io_uring_queue_init(entries as _, ring.as_mut_ptr(), flags.bits() as _)
+                uring_sys::io_uring_queue_init(entries as _, ring.as_mut_ptr(), flags.bits() as _)
             }?;
             Ok(IoUring { ring: ring.assume_init() })
         }
@@ -183,7 +180,7 @@ impl IoUring {
 
     pub fn next_sqe(&mut self) -> Option<SubmissionQueueEvent<'_>> {
         unsafe {
-            let sqe = sys::io_uring_get_sqe(&mut self.ring);
+            let sqe = uring_sys::io_uring_get_sqe(&mut self.ring);
             if sqe != ptr::null_mut() {
                 let mut sqe = SubmissionQueueEvent::new(&mut *sqe);
                 sqe.clear();
@@ -211,7 +208,7 @@ impl IoUring {
     pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
-            let count = sys::io_uring_peek_batch_cqe(&mut self.ring, cqe.as_mut_ptr(), 1);
+            let count = uring_sys::io_uring_peek_batch_cqe(&mut self.ring, cqe.as_mut_ptr(), 1);
 
             if count > 0 {
                 Some(CompletionQueueEvent::new(NonNull::from(
@@ -231,7 +228,7 @@ impl IoUring {
     pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
         -> io::Result<CompletionQueueEvent<'_>>
     {
-        let ts = sys::__kernel_timespec {
+        let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
             tv_nsec: duration.subsec_nanos() as _
         };
@@ -246,7 +243,7 @@ impl IoUring {
     pub fn wait_for_cqes_with_timeout(&mut self, count: usize, duration: Duration)
         -> io::Result<CompletionQueueEvent<'_>>
     {
-        let ts = sys::__kernel_timespec {
+        let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
             tv_nsec: duration.subsec_nanos() as _
         };
@@ -254,13 +251,13 @@ impl IoUring {
         self.inner_wait_for_cqes(count as _, &ts)
     }
 
-    fn inner_wait_for_cqes(&mut self, count: u32, ts: *const sys::__kernel_timespec)
+    fn inner_wait_for_cqes(&mut self, count: u32, ts: *const uring_sys::__kernel_timespec)
         -> io::Result<CompletionQueueEvent<'_>>
     {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
-            let _: i32 = resultify!(sys::io_uring_wait_cqes(
+            let _: i32 = resultify!(uring_sys::io_uring_wait_cqes(
                 &mut self.ring,
                 cqe.as_mut_ptr(),
                 count,
@@ -272,18 +269,18 @@ impl IoUring {
         }
     }
 
-    pub fn raw(&self) -> &sys::io_uring {
+    pub fn raw(&self) -> &uring_sys::io_uring {
         &self.ring
     }
 
-    pub fn raw_mut(&mut self) -> &mut sys::io_uring {
+    pub fn raw_mut(&mut self) -> &mut uring_sys::io_uring {
         &mut self.ring
     }
 }
 
 impl Drop for IoUring {
     fn drop(&mut self) {
-        unsafe { sys::io_uring_queue_exit(&mut self.ring) };
+        unsafe { uring_sys::io_uring_queue_exit(&mut self.ring) };
     }
 }
 
