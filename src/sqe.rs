@@ -53,7 +53,7 @@ impl<'ring> SubmissionQueue<'ring> {
             if let Some(mut sqe) = self.next_sqe() {
                 sqe.clear();
                 unsafe {
-                    sqe.prep_timeout(&ts, 0, TimeoutFlags::empty());
+                    sqe.prep_timeout(&ts);
                     return resultify!(sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
                 }
             }
@@ -113,7 +113,12 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = buf.len();
         let addr = buf.as_mut_ptr();
-        sys::io_uring_prep_read_fixed(self.sqe, fd, addr as _, len as _, offset as _, buf_index as _);
+        sys::io_uring_prep_read_fixed(self.sqe,
+                                      fd,
+                                      addr as _,
+                                      len as _,
+                                      offset as _,
+                                      buf_index as _);
     }
 
     #[inline]
@@ -138,7 +143,11 @@ impl<'a> SubmissionQueueEvent<'a> {
     ) {
         let len = buf.len();
         let addr = buf.as_ptr();
-        sys::io_uring_prep_write_fixed(self.sqe, fd, addr as _, len as _, offset as _, buf_index as _);
+        sys::io_uring_prep_write_fixed(self.sqe,
+                                       fd, addr as _,
+                                       len as _,
+                                       offset as _,
+                                       buf_index as _);
     }
 
     #[inline]
@@ -147,8 +156,21 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_timeout(&mut self, ts: &sys::__kernel_timespec, count: usize, flags: TimeoutFlags) {
-        sys::io_uring_prep_timeout(self.sqe, ts as *const _ as *mut _, count as _, flags.bits() as _);
+    pub unsafe fn prep_timeout(&mut self, ts: &sys::__kernel_timespec) {
+        self.prep_timeout_with_flags(ts, 0, TimeoutFlags::empty());
+    }
+
+    #[inline]
+    pub unsafe fn prep_timeout_with_flags(
+        &mut self,
+        ts: &sys::__kernel_timespec,
+        count: usize,
+        flags: TimeoutFlags,
+    ) {
+        sys::io_uring_prep_timeout(self.sqe,
+                                   ts as *const _ as *mut _,
+                                   count as _,
+                                   flags.bits() as _);
     }
 
     #[inline]
