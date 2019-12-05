@@ -183,6 +183,21 @@ impl<'a> CompletionQueueEvents<'a> {
         self.filter_timeouts = flag;
     }
 
+    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<()> {
+        unsafe {
+            let mut cqe = MaybeUninit::uninit();
+            let ready = wait(self.ring, &mut cqe, count + self.seen, ptr::null())?;
+
+            self.available = ready - self.seen;
+
+            if self.available != 0 && self.ptr == ptr::null_mut() {
+                self.ptr = cqe.assume_init();
+            }
+
+            Ok(())
+        }
+    }
+
     pub fn advance_queue(&mut self) {
         unsafe {
             uring_sys::io_uring_cq_advance(self.ring.as_ptr(), self.seen as _);
