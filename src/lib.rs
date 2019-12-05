@@ -285,6 +285,14 @@ impl Drop for IoUring {
 unsafe impl Send for IoUring { }
 unsafe impl Sync for IoUring { }
 
+#[inline(always)]
+fn timespec(duration: Duration) -> uring_sys::__kernel_timespec {
+    uring_sys::__kernel_timespec {
+        tv_sec: duration.as_secs() as _,
+        tv_nsec: duration.subsec_nanos() as _
+    }
+}
+
 // This has to live in an inline module to test the non-exported resultify macro.
 #[cfg(test)]
 mod tests {
@@ -309,13 +317,5 @@ mod tests {
         let ret: Result<i32, _> = resultify!(side_effect(-1, &mut calls));
         assert!(match ret { Err(e) if e.raw_os_error() == Some(1) => true, _ => false });
         assert_eq!(calls, 1);
-    }
-}
-
-#[inline(always)]
-fn timespec(duration: Duration) -> uring_sys::__kernel_timespec {
-    uring_sys::__kernel_timespec {
-        tv_sec: duration.as_secs() as _,
-        tv_nsec: duration.subsec_nanos() as _
     }
 }
