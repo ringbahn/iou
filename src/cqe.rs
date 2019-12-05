@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 
-use super::IoUring;
+use super::{IoUring, SubmissionQueue};
 
 /// The queue of completed IO events.
 ///
@@ -31,12 +31,35 @@ impl<'ring> CompletionQueue<'ring> {
         unsafe { wait_for_one(self.ring, ptr::null()) }
     }
 
+    pub fn wait_for_cqe_with_timeout<'a>(
+        &'a mut self,
+        sq: &mut SubmissionQueue<'ring>,
+        duration: std::time::Duration,
+    ) -> io::Result<CompletionQueueEvent<'a>> {
+        assert_eq!(self.ring.as_ptr() as usize, sq.ring().as_ptr() as usize);
+
+        let ts = crate::timespec(duration);
+        unsafe { wait_for_one(self.ring, &ts) }
+    }
+
     pub fn peek_for_cqes(&mut self) -> CompletionQueueEvents<'_> {
         unsafe { CompletionQueueEvents::peek(self.ring) }
     }
 
     pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvents<'_>> {
         unsafe { CompletionQueueEvents::wait(self.ring, count, ptr::null()) }
+    }
+
+    pub fn wait_for_cqes_with_timeout<'a>(
+        &'a mut self,
+        sq: &mut SubmissionQueue<'ring>,
+        count: usize,
+        duration: std::time::Duration,
+    ) -> io::Result<CompletionQueueEvents<'a>> {
+        assert_eq!(self.ring.as_ptr() as usize, sq.ring().as_ptr() as usize);
+
+        let ts = crate::timespec(duration);
+        unsafe { CompletionQueueEvents::wait(self.ring, count, &ts) }
     }
 }
 
