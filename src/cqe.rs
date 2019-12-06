@@ -24,11 +24,11 @@ impl<'ring> CompletionQueue<'ring> {
     }
 
     pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
-        unsafe { peek_for_one(self.ring) }
+        unsafe { CompletionQueueEvent::peek(self.ring) }
     }
 
     pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent<'_>> {
-        unsafe { wait_for_one(self.ring, ptr::null()) }
+        unsafe { CompletionQueueEvent::wait(self.ring, ptr::null()) }
     }
 
     pub fn wait_for_cqe_with_timeout<'a>(
@@ -39,7 +39,7 @@ impl<'ring> CompletionQueue<'ring> {
         assert_eq!(self.ring.as_ptr() as usize, sq.ring().as_ptr() as usize);
 
         let ts = crate::timespec(duration);
-        unsafe { wait_for_one(self.ring, &ts) }
+        unsafe { CompletionQueueEvent::wait(self.ring, &ts) }
     }
 
     pub fn peek_for_cqes(&mut self) -> CompletionQueueEvents<'_> {
@@ -146,7 +146,10 @@ impl<'a> CompletionQueueEvents<'a> {
                 // Construct a CQE from self.ptr, now that we know there is at least one more
                 // CQE available and our pointer is non-null. We pass a null pointer for the
                 // ring so that it will not advance the queue on drop.
-                let cqe = CompletionQueueEvent::new(ptr::null_mut(), &mut *self.ptr);
+                let cqe = CompletionQueueEvent {
+                    ring: ptr::null_mut(),
+                    cqe: &mut *self.ptr
+                };
 
                 // Advance the pointer and our counters because we have now taken this pointer
                 self.ptr = self.ptr.offset(1);
@@ -225,10 +228,42 @@ pub struct CompletionQueueEvent<'a> {
 }
 
 impl<'a> CompletionQueueEvent<'a> {
-    pub(crate) fn new(ring: *mut uring_sys::io_uring, cqe: &'a mut uring_sys::io_uring_cqe)
-        -> CompletionQueueEvent<'a>
+    // unsafe contract:
+    //  - ring must not be dangling
+    //  - this returns a CQE with an arbitrary lifetime, you must have logically exclusive access
+    //    to the CQ for that lifetime
+    pub(crate) unsafe fn peek(ring: NonNull<uring_sys::io_uring>)
+        -> Option<CompletionQueueEvent<'a>>
     {
-        CompletionQueueEvent { ring, cqe }
+        let mut cqe = MaybeUninit::uninit();
+        if peek(ring, &mut cqe) > 0 {
+            Some(CompletionQueueEvent {
+                ring: ring.as_ptr(),
+                cqe: &mut *cqe.assume_init()
+            })
+        } else {
+            None
+        }
+    }
+
+    // unsafe contract:
+    //  - ring must not be dangling
+    //  - this returns a CQE with an arbitrary lifetime, you must have logically exclusive access
+    //    to the CQ for that lifetime
+    //  - if ts is nonnull, you must have logically exclusive access to the SQ as well as CQ and ts
+    //    must point to a valid __kernel_timespec
+    pub(crate) unsafe fn wait(
+        ring: NonNull<uring_sys::io_uring>,
+        ts: *const uring_sys::__kernel_timespec
+    ) -> io::Result<CompletionQueueEvent<'a>> {
+        let mut cqe = MaybeUninit::uninit();
+
+        wait(ring, &mut cqe, 1, ts)?;
+
+        Ok(CompletionQueueEvent {
+            ring: ring.as_ptr(),
+            cqe: &mut *cqe.assume_init()
+        })
     }
 
     /// Check whether this event is a timeout.
@@ -264,17 +299,13 @@ impl<'a> CompletionQueueEvent<'a> {
     pub fn raw(&self) -> &uring_sys::io_uring_cqe {
         self.cqe
     }
-
-    pub fn raw_mut(&mut self) -> &mut uring_sys::io_uring_cqe {
-        self.cqe
-    }
 }
 
 impl<'a> Drop for CompletionQueueEvent<'a> {
     fn drop(&mut self) {
         if self.ring != ptr::null_mut() {
             unsafe {
-                uring_sys::io_uring_cqe_seen(self.ring, self.cqe);
+                uring_sys::io_uring_cqe_seen(self.ring, self.cqe)
             }
         }
     }
@@ -309,23 +340,6 @@ pub(crate) unsafe fn peek<'a>(
 
 // unsafe contract:
 //  - ring must not be dangling
-//  - this returns a CQE with an arbitrary lifetime, you must have logically exclusive access to
-//    the CQ for that lifetime
-#[inline(always)]
-pub(crate) unsafe fn peek_for_one<'a>(ring: NonNull<uring_sys::io_uring>)
-    -> Option<CompletionQueueEvent<'a>>
-{
-    let mut cqe = MaybeUninit::uninit();
-    if peek(ring, &mut cqe) > 0 {
-        Some(CompletionQueueEvent::new(ring.as_ptr(), &mut *cqe.assume_init()))
-    } else {
-        None
-    }
-}
-
-
-// unsafe contract:
-//  - ring must not be dangling
 //  - you must have logically exclusive access to the CQ for this function call
 //  - if ts is nonnull, you must have logically exclusive access to the SQ as well as CQ and ts
 //    must point to a valid __kernel_timespec
@@ -339,20 +353,4 @@ pub(crate) unsafe fn wait(
     let ring = ring.as_ptr();
     let cqe = cqe.as_mut_ptr();
     resultify!(uring_sys::io_uring_wait_cqes(ring, cqe, count as _, ts, ptr::null()))
-}
-
-// unsafe contract:
-//  - ring must not be dangling
-//  - this returns a CQE with an arbitrary lifetime, you must have logically exclusive access to
-//    the CQ for that lifetime
-//  - if ts is nonnull, you must have logically exclusive access to the SQ as well as CQ and ts
-//    must point to a valid __kernel_timespec
-#[inline(always)]
-pub(crate) unsafe fn wait_for_one<'a>(
-    ring: NonNull<uring_sys::io_uring>,
-    ts: *const uring_sys::__kernel_timespec
-) -> io::Result<CompletionQueueEvent<'a>> {
-    let mut cqe = MaybeUninit::uninit();
-    wait(ring, &mut cqe, 1, ts)?;
-    Ok(CompletionQueueEvent::new(ring.as_ptr(), &mut *cqe.assume_init()))
 }

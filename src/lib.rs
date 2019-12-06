@@ -210,7 +210,7 @@ impl IoUring {
     /// If there is at least one CompletionQueueEvent ready on the queue, this
     /// will return it. If there aren't any ready, it will return `None`.
     pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
-        unsafe { cqe::peek_for_one(NonNull::from(&mut self.ring)) }
+        unsafe { CompletionQueueEvent::peek(NonNull::from(&mut self.ring)) }
     }
 
     /// Wait for at least one CompletionQueueEvent to be ready, blocking this thread.
@@ -219,7 +219,7 @@ impl IoUring {
     /// on the completion queue, then returns the first of those. There may be more
     /// events ready after, which you can check with the `peek` methods.
     pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent<'_>> {
-        unsafe { cqe::wait_for_one(NonNull::from(&mut self.ring), ptr::null()) }
+        unsafe { CompletionQueueEvent::wait(NonNull::from(&mut self.ring), ptr::null()) }
     }
 
     /// Wait for at least one CompletionQueueEvent to be ready, blocking with a
@@ -233,7 +233,7 @@ impl IoUring {
     pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
         -> io::Result<CompletionQueueEvent<'_>>
     {
-        unsafe { cqe::wait_for_one(NonNull::from(&mut self.ring), &timespec(duration)) }
+        unsafe { CompletionQueueEvent::wait(NonNull::from(&mut self.ring), &timespec(duration)) }
     }
 
     /// Check if any CompletionQueueEvents are ready, without blocking.
