@@ -71,7 +71,6 @@ pub struct CompletionQueueEvents<'a> {
     ptr: *mut uring_sys::io_uring_cqe,
     available: usize,
     seen: usize,
-    filter_timeouts: bool,
     _marker: PhantomData<&'a mut IoUring>,
 }
 
@@ -95,7 +94,6 @@ impl<'a> CompletionQueueEvents<'a> {
                 available,
                 ptr: cqe.assume_init(),
                 seen: 0,
-                filter_timeouts: false,
                 _marker: PhantomData,
             })
         } else {
@@ -113,7 +111,6 @@ impl<'a> CompletionQueueEvents<'a> {
             ptr: ptr::null_mut(),
             available: 0,
             seen: 0,
-            filter_timeouts: false,
             _marker: PhantomData,
         }
     }
@@ -156,9 +153,8 @@ impl<'a> CompletionQueueEvents<'a> {
                 self.available -= 1;
                 self.seen += 1;
 
-                // If we are filtering timeouts and this CQE is a timeout, repeat this process.
-                // Otherwise, return this CQE.
-                if self.filter_timeouts && cqe.is_timeout() {
+                // If this CQE is a timeout, repeat this process. Otherwise, return this CQE.
+                if cqe.is_timeout() {
                     continue 'skip_timeouts;
                 }
                 
@@ -180,10 +176,6 @@ impl<'a> CompletionQueueEvents<'a> {
             f(cqe)?;
         }
         Ok(())
-    }
-
-    pub fn filter_timeouts(&mut self, flag: bool) {
-        self.filter_timeouts = flag;
     }
 
     pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<()> {
