@@ -7,6 +7,42 @@ use std::time::Duration;
 
 use super::IoUring;
 
+/// The queue of pending IO events.
+///
+/// Each element is a [`SubmissionQueueEvent`](crate::sqe::SubmissionQueueEvent).
+/// By default, events are processed in parallel after being submitted.
+/// You can modify this behavior for specific events using event [`SubmissionFlags`](crate::sqe::SubmissionFlags).
+///
+/// # Examples
+/// Consider a read event that depends on a successful write beforehand.
+///
+/// We reify this relationship by using `IO_LINK` to link these events.
+/// ```rust
+/// # use std::error::Error;
+/// # use std::fs::File;
+/// # use std::os::unix::io::{AsRawFd, RawFd};
+/// # use iou::{IoUring, SubmissionFlags};
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+/// # let mut ring = IoUring::new(2)?;
+/// # let mut sq = ring.sq();
+/// #
+/// let mut write_event = sq.next_sqe().unwrap();
+///
+/// // -- write event prep elided
+///
+/// // set IO_LINK to link the next event to this one
+/// write_event.set_flags(SubmissionFlags::IO_LINK);
+///
+/// let mut read_event = sq.next_sqe().unwrap();
+///
+/// // -- read event prep elided
+///
+/// // read_event only occurs if write_event was successful
+/// sq.submit()?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct SubmissionQueue<'ring> {
     ring: NonNull<uring_sys::io_uring>,
     _marker: PhantomData<&'ring mut IoUring>,
@@ -20,6 +56,25 @@ impl<'ring> SubmissionQueue<'ring> {
         }
     }
 
+    /// Returns new [`SubmissionQueueEvent`s](crate::sqe::SubmissionQueueEvent) until the queue size is reached. After that, will return `None`.
+    /// ```rust
+    /// # use iou::IoUring;
+    /// # use std::error::Error;
+    /// # fn main() -> std::io::Result<()> {
+    /// # let ring_size = 2;
+    /// let mut ring = IoUring::new(ring_size)?;
+    ///
+    /// let mut counter = 0;
+    ///
+    /// while let Some(event) = ring.next_sqe() {
+    ///     counter += 1;
+    /// }
+    ///
+    /// assert_eq!(counter, ring_size);
+    /// assert!(ring.next_sqe().is_none());
+    /// # Ok(())
+    /// # }
+    ///
     pub fn next_sqe<'a>(&'a mut self) -> Option<SubmissionQueueEvent<'a>> {
         unsafe {
             let sqe = uring_sys::io_uring_get_sqe(self.ring.as_ptr());
@@ -33,6 +88,9 @@ impl<'ring> SubmissionQueue<'ring> {
         }
     }
 
+    /// Submit all events in the queue. Returns the number of submitted events.
+    ///
+    /// If this function encounters any IO errors an [`io::Error`](std::io::Result) variant is returned.
     pub fn submit(&mut self) -> io::Result<usize> {
         resultify!(unsafe { uring_sys::io_uring_submit(self.ring.as_ptr()) })
     }
@@ -66,6 +124,10 @@ impl<'ring> SubmissionQueue<'ring> {
 unsafe impl<'ring> Send for SubmissionQueue<'ring> { }
 unsafe impl<'ring> Sync for SubmissionQueue<'ring> { }
 
+/// A pending IO event.
+///
+/// Can be configured with a set of [`SubmissionFlags`](crate::sqe::SubmissionFlags).
+///
 pub struct SubmissionQueueEvent<'a> {
     sqe: &'a mut uring_sys::io_uring_sqe,
 }
@@ -75,18 +137,36 @@ impl<'a> SubmissionQueueEvent<'a> {
         SubmissionQueueEvent { sqe }
     }
 
+    /// Get this event's user data.
     pub fn user_data(&self) -> u64 {
         self.sqe.user_data as u64
     }
 
+    /// Set this event's user data. User data is intended to be used by the application after completion.
+    /// ```rust
+    /// # use iou::IoUring;
+    /// # fn main() -> std::io::Result<()> {
+    /// # let mut ring = IoUring::new(2)?;
+    /// # let mut sq_event = ring.next_sqe().unwrap();
+    /// #
+    /// sq_event.set_user_data(0xB00);
+    /// ring.submit_sqes()?;
+    ///
+    /// let cq_event = ring.wait_for_cqe()?;
+    /// assert_eq!(cq_event.user_data(), 0xB00);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn set_user_data(&mut self, user_data: u64) {
         self.sqe.user_data = user_data as _;
     }
 
+    /// Get this event's flags.
     pub fn flags(&self) -> SubmissionFlags {
         unsafe { SubmissionFlags::from_bits_unchecked(self.sqe.flags as _) }
     }
 
+    /// Set this event's flags.
     pub fn set_flags(&mut self, flags: SubmissionFlags) {
         self.sqe.flags = flags.bits() as _;
     }
@@ -155,6 +235,25 @@ impl<'a> SubmissionQueueEvent<'a> {
         uring_sys::io_uring_prep_fsync(self.sqe, fd, flags.bits() as _);
     }
 
+    /// Prepare a timeout event.
+    /// ```
+    /// # use iou::IoUring;
+    /// # fn main() -> std::io::Result<()> {
+    /// # let mut ring = IoUring::new(1)?;
+    /// # let mut sqe = ring.next_sqe().unwrap();
+    /// #
+    /// // make a one-second timeout
+    /// let timeout_spec: _ = uring_sys::__kernel_timespec {
+    ///     tv_sec:  1 as _,
+    ///     tv_nsec: 0 as _,
+    /// };
+    ///
+    /// unsafe { sqe.prep_timeout(&timeout_spec); }
+    ///
+    /// ring.submit_sqes()?;
+    /// # Ok(())
+    /// # }
+    ///```
     #[inline]
     pub unsafe fn prep_timeout(&mut self, ts: &uring_sys::__kernel_timespec) {
         self.prep_timeout_with_flags(ts, 0, TimeoutFlags::empty());
@@ -173,15 +272,69 @@ impl<'a> SubmissionQueueEvent<'a> {
                                    flags.bits() as _);
     }
 
+    /// Prepare a no-op event.
+    /// ```
+    /// # use iou::{IoUring, SubmissionFlags};
+    /// # fn main() -> std::io::Result<()> {
+    /// # let mut ring = IoUring::new(1)?;
+    /// #
+    /// // example: use a no-op to force a drain
+    ///
+    /// let mut nop = ring.next_sqe().unwrap();
+    ///
+    /// nop.set_flags(SubmissionFlags::IO_DRAIN);
+    /// unsafe { nop.prep_nop(); }
+    ///
+    /// ring.submit_sqes()?;
+    /// # Ok(())
+    /// # }
+    ///```
     #[inline]
     pub unsafe fn prep_nop(&mut self) {
         uring_sys::io_uring_prep_nop(self.sqe);
     }
 
+    /// Clear event. Clears user data, flags, and any event setup.
+    /// ```
+    /// # use iou::{IoUring, SubmissionFlags};
+    /// #
+    /// # fn main() -> std::io::Result<()> {
+    /// # let mut ring = IoUring::new(1)?;
+    /// # let mut sqe = ring.next_sqe().unwrap();
+    /// #
+    /// sqe.set_user_data(0x1010);
+    /// sqe.set_flags(SubmissionFlags::IO_DRAIN);
+    ///
+    /// sqe.clear();
+    ///
+    /// assert_eq!(sqe.user_data(), 0x0);
+    /// assert_eq!(sqe.flags(), SubmissionFlags::empty());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn clear(&mut self) {
         *self.sqe = unsafe { mem::zeroed() };
     }
 
+    /// Get a reference to the underlying [`uring_sys::io_uring_sqe`](uring_sys::io_uring_sqe) object.
+    ///
+    /// You can use this method to inspect the low-level details of an event.
+    /// ```
+    /// # use iou::{IoUring};
+    /// #
+    /// # fn main() -> std::io::Result<()> {
+    /// # let mut ring = IoUring::new(1)?;
+    /// # let mut sqe = ring.next_sqe().unwrap();
+    /// #
+    /// unsafe { sqe.prep_nop(); }
+    ///
+    /// let sqe_ref = sqe.raw();
+    ///
+    /// assert_eq!(sqe_ref.len, 0);
+    /// # Ok(())
+    /// # }
+    ///
+    /// ```
     pub fn raw(&self) -> &uring_sys::io_uring_sqe {
         &self.sqe
     }
@@ -195,15 +348,25 @@ unsafe impl<'a> Send for SubmissionQueueEvent<'a> { }
 unsafe impl<'a> Sync for SubmissionQueueEvent<'a> { }
 
 bitflags::bitflags! {
+    /// [`SubmissionQueueEvent`](SubmissionQueueEvent) configuration flags.
+    ///
+    /// Use a [`Registrar`](crate::registrar::Registrar) to register files for the `FIXED_FILE` flag.
     pub struct SubmissionFlags: u8 {
+        /// This event's file descriptor is an index into the preregistered set of files.
         const FIXED_FILE    = 1 << 0;   /* use fixed fileset */
+        /// Submit this event only after completing all ongoing submission events.
         const IO_DRAIN      = 1 << 1;   /* issue after inflight IO */
+        /// Force the next submission event to wait until this event has completed sucessfully.
+        ///
+        /// An event's link only applies to the next event, but link chains can be
+        /// arbitrarily long.
         const IO_LINK       = 1 << 2;   /* next IO depends on this one */
     }
 }
 
 bitflags::bitflags! {
     pub struct FsyncFlags: u32 {
+        /// Sync file data without an immediate metadata sync.
         const FSYNC_DATASYNC    = 1 << 0;
     }
 }
