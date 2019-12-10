@@ -284,7 +284,7 @@ impl<'a> CompletionQueueEvent<'a> {
         if  !cqe.is_timeout() {
             Ok(Some(cqe))
         } else {
-            Ok(None)
+            cqe.result().map(|_| None)
         }
     }
 
