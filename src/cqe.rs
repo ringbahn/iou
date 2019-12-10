@@ -28,14 +28,20 @@ impl<'ring> CompletionQueue<'ring> {
     }
 
     pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent<'_>> {
-        unsafe { CompletionQueueEvent::wait(self.ring, ptr::null()) }
+        let mut cqe = None;
+        while cqe.is_none() {
+            unsafe {
+                cqe = CompletionQueueEvent::wait(self.ring, ptr::null())?;
+            }
+        }
+        Ok(cqe.unwrap())
     }
 
     pub fn wait_for_cqe_with_timeout<'a>(
         &'a mut self,
         sq: &mut SubmissionQueue<'ring>,
         duration: std::time::Duration,
-    ) -> io::Result<CompletionQueueEvent<'a>> {
+    ) -> io::Result<Option<CompletionQueueEvent<'a>>> {
         assert_eq!(self.ring.as_ptr() as usize, sq.ring().as_ptr() as usize);
 
         let ts = crate::timespec(duration);
@@ -66,15 +72,16 @@ impl<'ring> CompletionQueue<'ring> {
 unsafe impl<'ring> Send for CompletionQueue<'ring> { }
 unsafe impl<'ring> Sync for CompletionQueue<'ring> { }
 
-pub struct CompletionQueueEvents<'a> {
+pub struct CompletionQueueEvents<'a, F = fn(io::Result<usize>)> {
     ring: NonNull<uring_sys::io_uring>,
     ptr: *mut uring_sys::io_uring_cqe,
     available: usize,
     seen: usize,
+    timeout_handler: Option<F>,
     _marker: PhantomData<&'a mut IoUring>,
 }
 
-impl<'a> CompletionQueueEvents<'a> {
+impl<'a, F: FnMut(io::Result<usize>)> CompletionQueueEvents<'a, F> {
     // unsafe contract:
     //  - ring must not be dangling
     //  - this returns a CQE iterator with an arbitrary lifetime, you must have logically exclusive
@@ -85,7 +92,7 @@ impl<'a> CompletionQueueEvents<'a> {
         ring: NonNull<uring_sys::io_uring>,
         count: usize,
         ts: *const uring_sys::__kernel_timespec
-    ) -> io::Result<CompletionQueueEvents<'a>> {
+    ) -> io::Result<CompletionQueueEvents<'a, F>> {
         let mut cqe = MaybeUninit::uninit();
         let available = wait(ring, &mut cqe, count, ts)?;
         if available != 0 {
@@ -94,6 +101,7 @@ impl<'a> CompletionQueueEvents<'a> {
                 available,
                 ptr: cqe.assume_init(),
                 seen: 0,
+                timeout_handler: None,
                 _marker: PhantomData,
             })
         } else {
@@ -105,12 +113,13 @@ impl<'a> CompletionQueueEvents<'a> {
     //  - ring must not be dangling
     //  - this returns a CQE iterator with an arbitrary lifetime, you must have logically exclusive
     //    access to the CQ for that lifetime
-    pub(crate) unsafe fn peek(ring: NonNull<uring_sys::io_uring>) -> CompletionQueueEvents<'a> {
+    pub(crate) unsafe fn peek(ring: NonNull<uring_sys::io_uring>) -> CompletionQueueEvents<'a, F> {
         CompletionQueueEvents {
             ring,
             ptr: ptr::null_mut(),
             available: 0,
             seen: 0,
+            timeout_handler: None,
             _marker: PhantomData,
         }
     }
@@ -155,6 +164,10 @@ impl<'a> CompletionQueueEvents<'a> {
 
                 // If this CQE is a timeout, repeat this process. Otherwise, return this CQE.
                 if cqe.is_timeout() {
+                    if let Some(handler) = &mut self.timeout_handler {
+                        handler(cqe.result())
+                    }
+
                     continue 'skip_timeouts;
                 }
                 
@@ -199,9 +212,14 @@ impl<'a> CompletionQueueEvents<'a> {
         }
         self.seen = 0;
     }
+
+    pub fn handle_timeouts(&mut self, handler: F) -> &mut Self {
+        self.timeout_handler = Some(handler);
+        self
+    }
 }
 
-impl<'a> Drop for CompletionQueueEvents<'a> {
+impl<'a, F> Drop for CompletionQueueEvents<'a, F> {
     fn drop(&mut self) {
         // Advance the CQ by as many CQEs as we have seen using this iterator.
         unsafe {
@@ -228,10 +246,12 @@ impl<'a> CompletionQueueEvent<'a> {
         -> Option<CompletionQueueEvent<'a>>
     {
         let mut cqe = MaybeUninit::uninit();
-        if peek(ring, &mut cqe) > 0 {
+        uring_sys::io_uring_peek_cqe(ring.as_ptr(), cqe.as_mut_ptr());
+        let cqe = cqe.assume_init();
+        if cqe != ptr::null_mut() {
             Some(CompletionQueueEvent {
                 ring: ring.as_ptr(),
-                cqe: &mut *cqe.assume_init()
+                cqe: &mut *cqe,
             })
         } else {
             None
@@ -247,37 +267,25 @@ impl<'a> CompletionQueueEvent<'a> {
     pub(crate) unsafe fn wait(
         ring: NonNull<uring_sys::io_uring>,
         ts: *const uring_sys::__kernel_timespec
-    ) -> io::Result<CompletionQueueEvent<'a>> {
+    ) -> io::Result<Option<CompletionQueueEvent<'a>>> {
         let mut cqe = MaybeUninit::uninit();
 
-        wait(ring, &mut cqe, 1, ts)?;
+        let _: i32 = resultify!(uring_sys::io_uring_wait_cqe_timeout(
+            ring.as_ptr(),
+            cqe.as_mut_ptr(),
+            ts as _,
+        ))?;
 
-        Ok(CompletionQueueEvent {
+        let cqe = CompletionQueueEvent {
             ring: ring.as_ptr(),
-            cqe: &mut *cqe.assume_init()
-        })
-    }
+            cqe: &mut *cqe.assume_init(),
+        };
 
-    /// Check whether this event is a timeout.
-    /// ```
-    /// # use iou::{IoUring, SubmissionQueueEvent};
-    /// # fn main() -> std::io::Result<()> {
-    /// # let mut ring = IoUring::new(2)?;
-    /// # let mut sqe = ring.next_sqe().unwrap();
-    /// #
-    /// # // make a fake timeout with a nop for testing
-    /// # unsafe { sqe.prep_nop(); }
-    /// # ring.submit_sqes()?;
-    /// #
-    /// # let mut cq_event;
-    /// cq_event = ring.wait_for_cqe()?;
-    /// # cq_event.raw_mut().user_data = uring_sys::LIBURING_UDATA_TIMEOUT;
-    /// assert!(cq_event.is_timeout());
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn is_timeout(&self) -> bool {
-        self.cqe.user_data == uring_sys::LIBURING_UDATA_TIMEOUT
+        if  !cqe.is_timeout() {
+            Ok(Some(cqe))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn user_data(&self) -> u64 {
@@ -290,6 +298,10 @@ impl<'a> CompletionQueueEvent<'a> {
 
     pub fn raw(&self) -> &uring_sys::io_uring_cqe {
         self.cqe
+    }
+
+    fn is_timeout(&self) -> bool {
+        self.cqe.user_data == uring_sys::LIBURING_UDATA_TIMEOUT
     }
 }
 

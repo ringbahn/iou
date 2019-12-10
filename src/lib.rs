@@ -219,7 +219,13 @@ impl IoUring {
     /// on the completion queue, then returns the first of those. There may be more
     /// events ready after, which you can check with the `peek` methods.
     pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent<'_>> {
-        unsafe { CompletionQueueEvent::wait(NonNull::from(&mut self.ring), ptr::null()) }
+        let mut cqe = None;
+        while cqe.is_none() {
+            unsafe {
+                cqe = CompletionQueueEvent::wait(NonNull::from(&mut self.ring), ptr::null())?;
+            }
+        }
+        Ok(cqe.unwrap())
     }
 
     /// Wait for at least one CompletionQueueEvent to be ready, blocking with a
@@ -231,7 +237,7 @@ impl IoUring {
     /// `is_timeout` method on the CompletionQueueEvent you receive from this
     /// method.
     pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
-        -> io::Result<CompletionQueueEvent<'_>>
+        -> io::Result<Option<CompletionQueueEvent<'_>>>
     {
         unsafe { CompletionQueueEvent::wait(NonNull::from(&mut self.ring), &timespec(duration)) }
     }
