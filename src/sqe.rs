@@ -272,6 +272,16 @@ impl<'a> SubmissionQueueEvent<'a> {
                                    flags.bits() as _);
     }
 
+    #[inline]
+    pub unsafe fn prep_poll_add(&mut self, fd: RawFd, poll_mask: PollMask) {
+        uring_sys::io_uring_prep_poll_add(self.sqe, fd, poll_mask.bits())
+    }
+
+    #[inline]
+    pub unsafe fn prep_poll_remove(&mut self, user_data: u64) {
+        uring_sys::io_uring_prep_poll_remove(self.sqe, user_data as _)
+    }
+
     /// Prepare a no-op event.
     /// ```
     /// # use iou::{IoUring, SubmissionFlags};
@@ -374,5 +384,18 @@ bitflags::bitflags! {
 bitflags::bitflags! {
     pub struct TimeoutFlags: u32 {
         const TIMEOUT_ABS   = 1 << 0;
+    }
+}
+
+bitflags::bitflags! {
+    pub struct PollMask: libc::c_short {
+        const POLLIN     = libc::POLLIN;
+        const POLLPRI    = libc::POLLPRI;
+        const POLLOUT    = libc::POLLOUT;
+        const POLLERR    = libc::POLLERR;
+        const POLLHUP    = libc::POLLHUP;
+        const POLLNVAL   = libc::POLLNVAL;
+        const POLLRDNORM = libc::POLLRDNORM;
+        const POLLRDBAND = libc::POLLRDBAND;
     }
 }
