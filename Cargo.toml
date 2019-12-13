@@ -1,7 +1,8 @@
 [package]
 name = "iou"
-version = "0.1.0"
+version = "0.2.0"
 description = "io_uring bindings"
+documentation = "https://docs.rs/iou"
 repository = "https://github.com/withoutboats/iou"
 keywords = ["io_uring", "liburing", "async", "futures"]
 license = "MIT OR Apache-2.0"
@@ -10,4 +11,5 @@ edition = "2018"
 
 [dependencies]
 bitflags = "1.2.0"
+libc = "0.2.66"
 uring-sys = "1.0.0-beta"
