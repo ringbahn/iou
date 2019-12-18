@@ -247,7 +247,7 @@ impl IoUring {
     /// This returns CompletionQueueEvents type, which acts like an iterator of
     /// events (though it doesn't implement Iterator unfortunately). It will
     /// keep yielding events until there are none left to yield.
-    pub fn peek_for_cqes(&mut self) -> CompletionQueueEvents<'_> {
+    pub fn peek_for_cqes<F>(&mut self) -> CompletionQueueEvents<'_, F> {
         unsafe { CompletionQueueEvents::peek(NonNull::from(&mut self.ring)) }
     }
 
@@ -260,13 +260,13 @@ impl IoUring {
     ///
     /// That means that this will yield at least `count` CompletionQueueEvents,
     /// but it may also yield more than that.
-    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvents<'_>> {
+    pub fn wait_for_cqes<F>(&mut self, count: usize) -> io::Result<CompletionQueueEvents<'_, F>> {
         let ring = NonNull::from(&mut self.ring);
         unsafe { CompletionQueueEvents::wait(ring, count, ptr::null()) }
     }
 
-    pub fn wait_for_cqes_with_timeout(&mut self, count: usize, duration: Duration)
-        -> io::Result<CompletionQueueEvents<'_>>
+    pub fn wait_for_cqes_with_timeout<F>(&mut self, count: usize, duration: Duration)
+        -> io::Result<CompletionQueueEvents<'_, F>>
     {
         let ring = NonNull::from(&mut self.ring);
         let ts = timespec(duration);

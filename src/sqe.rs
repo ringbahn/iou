@@ -116,10 +116,6 @@ impl<'ring> SubmissionQueue<'ring> {
             self.submit()?;
         }
     }
-
-    pub(crate) fn ring(&self) -> NonNull<uring_sys::io_uring> {
-        self.ring
-    }
 }
 
 unsafe impl<'ring> Send for SubmissionQueue<'ring> { }

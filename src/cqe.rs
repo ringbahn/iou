@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 
-use super::{IoUring, SubmissionQueue};
+use super::IoUring;
 
 /// The queue of completed IO events.
 ///
@@ -37,35 +37,12 @@ impl<'ring> CompletionQueue<'ring> {
         Ok(cqe.unwrap())
     }
 
-    pub fn wait_for_cqe_with_timeout<'a>(
-        &'a mut self,
-        sq: &mut SubmissionQueue<'ring>,
-        duration: std::time::Duration,
-    ) -> io::Result<Option<CompletionQueueEvent<'a>>> {
-        assert_eq!(self.ring.as_ptr() as usize, sq.ring().as_ptr() as usize);
-
-        let ts = crate::timespec(duration);
-        unsafe { CompletionQueueEvent::wait(self.ring, &ts) }
-    }
-
-    pub fn peek_for_cqes(&mut self) -> CompletionQueueEvents<'_> {
+    pub fn peek_for_cqes<F>(&mut self) -> CompletionQueueEvents<'_, F> {
         unsafe { CompletionQueueEvents::peek(self.ring) }
     }
 
-    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvents<'_>> {
+    pub fn wait_for_cqes<F>(&mut self, count: usize) -> io::Result<CompletionQueueEvents<'_, F>> {
         unsafe { CompletionQueueEvents::wait(self.ring, count, ptr::null()) }
-    }
-
-    pub fn wait_for_cqes_with_timeout<'a>(
-        &'a mut self,
-        sq: &mut SubmissionQueue<'ring>,
-        count: usize,
-        duration: std::time::Duration,
-    ) -> io::Result<CompletionQueueEvents<'a>> {
-        assert_eq!(self.ring.as_ptr() as usize, sq.ring().as_ptr() as usize);
-
-        let ts = crate::timespec(duration);
-        unsafe { CompletionQueueEvents::wait(self.ring, count, &ts) }
     }
 }
 
@@ -81,7 +58,7 @@ pub struct CompletionQueueEvents<'a, F = fn(io::Result<usize>)> {
     _marker: PhantomData<&'a mut IoUring>,
 }
 
-impl<'a, F: FnMut(io::Result<usize>)> CompletionQueueEvents<'a, F> {
+impl<'a, F> CompletionQueueEvents<'a, F> {
     // unsafe contract:
     //  - ring must not be dangling
     //  - this returns a CQE iterator with an arbitrary lifetime, you must have logically exclusive
@@ -123,7 +100,9 @@ impl<'a, F: FnMut(io::Result<usize>)> CompletionQueueEvents<'a, F> {
             _marker: PhantomData,
         }
     }
+}
 
+impl<'a, F: FnMut(io::Result<usize>)> CompletionQueueEvents<'a, F> {
     pub fn next_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
         'skip_timeouts: loop {
             unsafe {
@@ -136,8 +115,9 @@ impl<'a, F: FnMut(io::Result<usize>)> CompletionQueueEvents<'a, F> {
 
                     self.available = ready - self.seen;
 
-                    // If there are still none available, return None
+                    // If there are still none available, advance the queue and return None
                     if self.available == 0 {
+                        self.advance_queue();
                         return None;
                     }
 
@@ -146,6 +126,12 @@ impl<'a, F: FnMut(io::Result<usize>)> CompletionQueueEvents<'a, F> {
                     // CQE.
                     if self.ptr == ptr::null_mut() {
                         self.ptr = cqe.assume_init();
+                    }
+
+                    // If we're holding half or more of the CQ, advance the queue before
+                    // we continue
+                    if (*(*self.ring.as_ptr()).cq.kring_entries as usize) - ready <= ready {
+                        self.advance_queue();
                     }
                 }
 
@@ -158,7 +144,7 @@ impl<'a, F: FnMut(io::Result<usize>)> CompletionQueueEvents<'a, F> {
                 };
 
                 // Advance the pointer and our counters because we have now taken this pointer
-                self.ptr = self.ptr.offset(1);
+                self.ptr = self.ptr.offset(1); // TODO must handle wrap around!!!
                 self.available -= 1;
                 self.seen += 1;
 
