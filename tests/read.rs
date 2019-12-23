@@ -2,9 +2,9 @@
 extern crate test;
 
 use std::fs::File;
-use std::io;
-use std::path::PathBuf;
+use std::io::{self, IoSliceMut};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::path::PathBuf;
 
 const TEXT: &[u8] = b"I really wanna stop
 But I just gotta taste for it
@@ -28,8 +28,10 @@ fn read_test() -> io::Result<()> {
     path.push("text.txt");
     let file = File::open(&path)?;
     let mut buf1 = [0; 4096];
+
     unsafe {
-        prep(&mut io_uring, &mut buf1, file.as_raw_fd())?;
+        let mut bufs = [io::IoSliceMut::new(&mut buf1)];
+        prep(&mut io_uring, &mut bufs, file.as_raw_fd())?;
     }
 
     let dirt = dirty_stack();
@@ -48,11 +50,10 @@ fn read_test() -> io::Result<()> {
 }
 
 #[inline(never)]
-unsafe fn prep(ring: &mut iou::IoUring, buf: &mut [u8], fd: RawFd) -> io::Result<()> {
+unsafe fn prep(ring: &mut iou::IoUring, bufs: &mut [IoSliceMut], fd: RawFd) -> io::Result<()> {
     let mut sq = ring.sq();
     let mut sqe = sq.next_sqe().unwrap();
-    let mut bufs = [io::IoSliceMut::new(buf)];
-    sqe.prep_read_vectored(fd, &mut bufs, 0);
+    sqe.prep_read_vectored(fd, bufs, 0);
     sqe.set_user_data(0xDEADBEEF);
     sq.submit()?;
     Ok(())
