@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use super::IoUring;
+use crate::{PollFlags};
 
 /// The queue of pending IO events.
 ///
@@ -273,8 +274,8 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_poll_add(&mut self, fd: RawFd, poll_mask: PollMask) {
-        uring_sys::io_uring_prep_poll_add(self.sqe, fd, poll_mask.bits())
+    pub unsafe fn prep_poll_add(&mut self, fd: RawFd, poll_flags: PollFlags) {
+        uring_sys::io_uring_prep_poll_add(self.sqe, fd, poll_flags.bits())
     }
 
     #[inline]
@@ -384,18 +385,5 @@ bitflags::bitflags! {
 bitflags::bitflags! {
     pub struct TimeoutFlags: u32 {
         const TIMEOUT_ABS   = 1 << 0;
-    }
-}
-
-bitflags::bitflags! {
-    pub struct PollMask: libc::c_short {
-        const POLLIN     = libc::POLLIN;
-        const POLLPRI    = libc::POLLPRI;
-        const POLLOUT    = libc::POLLOUT;
-        const POLLERR    = libc::POLLERR;
-        const POLLHUP    = libc::POLLHUP;
-        const POLLNVAL   = libc::POLLNVAL;
-        const POLLRDNORM = libc::POLLRDNORM;
-        const POLLRDBAND = libc::POLLRDBAND;
     }
 }
