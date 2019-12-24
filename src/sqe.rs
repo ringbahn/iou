@@ -4,11 +4,9 @@ use std::os::unix::io::RawFd;
 use std::ptr::{self, NonNull};
 use std::marker::PhantomData;
 use std::time::Duration;
-use std::io::{IoSlice, IoSliceMut};
 
 use super::IoUring;
-use super::{PollFlags, SockAddr, SockFlag, MsgFlags};
-use nix::sys::socket;
+use super::{PollFlags, SockAddr, SockFlag};
 
 /// The queue of pending IO events.
 ///
@@ -276,6 +274,16 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
+    pub unsafe fn prep_timeout_remove(&mut self, user_data: u64) {
+        uring_sys::io_uring_prep_timeout_remove(self.sqe, user_data as _, 0);
+    }
+
+    #[inline]
+    pub unsafe fn prep_link_timeout(&mut self, ts: &uring_sys::__kernel_timespec) {
+        uring_sys::io_uring_prep_link_timeout(self.sqe, ts as *const _ as *mut _, 0);
+    }
+
+    #[inline]
     pub unsafe fn prep_poll_add(&mut self, fd: RawFd, poll_flags: PollFlags) {
         uring_sys::io_uring_prep_poll_add(self.sqe, fd, poll_flags.bits())
     }
@@ -294,16 +302,6 @@ impl<'a> SubmissionQueueEvent<'a> {
     #[inline]
     pub unsafe fn prep_accept(&mut self, fd: RawFd, flags: SockFlag) {
         uring_sys::io_uring_prep_accept(self.sqe, fd, std::ptr::null_mut(), std::ptr::null_mut(), flags.bits())
-    }
-
-    #[inline]
-    pub unsafe fn prep_sendmsg<'b>(&mut self, fd: RawFd, msg: &'b SendMsg<'b>, flags: MsgFlags) {
-        uring_sys::io_uring_prep_sendmsg(self.sqe, fd, &msg.msghdr, flags.bits() as _)
-    }
-
-    #[inline]
-    pub unsafe fn prep_recvmsg<'b>(&mut self, fd: RawFd, msg: &'b mut RecvMsg<'b>, flags: MsgFlags) {
-        uring_sys::io_uring_prep_recvmsg(self.sqe, fd, &mut msg.msghdr, flags.bits() as _)
     }
 
     /// Prepare a no-op event.
@@ -380,78 +378,6 @@ impl<'a> SubmissionQueueEvent<'a> {
 
 unsafe impl<'a> Send for SubmissionQueueEvent<'a> { }
 unsafe impl<'a> Sync for SubmissionQueueEvent<'a> { }
-
-pub struct SendMsg<'a> {
-    msghdr: libc::msghdr,
-    _m: PhantomData<&'a libc::msghdr>,
-}
-
-impl<'a> SendMsg<'a> {
-    pub fn new(buffers: &'a [IoSlice<'a>], addr: Option<&'a SockAddr>) -> Self {
-        let (name, namelen) = match addr {
-            Some(addr) => {
-                let (x, y) = unsafe { addr.as_ffi_pair() };
-                (x as *const _, y)
-            },
-            None => (ptr::null(), 0),
-        };
-
-        let msghdr = unsafe {
-            let mut msghdr = mem::MaybeUninit::<libc::msghdr>::zeroed();
-            let p = msghdr.as_mut_ptr();
-            (*p).msg_name = name as *mut _;
-            (*p).msg_namelen = namelen;
-            (*p).msg_iov = buffers.as_ptr() as *mut _;
-            (*p).msg_iovlen = buffers.len() as _;
-            (*p).msg_flags = 0;
-            msghdr.assume_init()
-        };
-
-        SendMsg {
-            msghdr,
-            _m: PhantomData
-        }
-    }
-}
-
-pub struct RecvMsg<'a> {
-    msghdr: libc::msghdr,
-    _m: PhantomData<&'a mut libc::msghdr>
-}
-
-impl <'a> RecvMsg<'a> {
-    pub fn new(buffers: &mut [IoSliceMut], mut cmsg_buffer: Option<&'a mut Vec<u8>>) -> Self {
-        let mut address = mem::MaybeUninit::uninit();
-        let (msg_control, msg_controllen) = cmsg_buffer.as_mut()
-            .map(|v| (v.as_mut_ptr(), v.capacity()))
-            .unwrap_or((ptr::null_mut(), 0));
-
-        let msghdr = {
-            unsafe {
-                let mut msghdr = mem::MaybeUninit::<libc::msghdr>::zeroed();
-                let p = msghdr.as_mut_ptr();
-                (*p).msg_name = address.as_mut_ptr() as *mut _;
-                (*p).msg_namelen = mem::size_of::<socket::sockaddr_storage>() as libc::socklen_t;
-                (*p).msg_iov = buffers.as_ptr() as *mut _;
-                (*p).msg_iovlen = buffers.len() as _;
-                (*p).msg_control = msg_control as *mut _;
-                (*p).msg_controllen = msg_controllen as _;
-                (*p).msg_flags = 0;
-                msghdr.assume_init()
-            }
-        };
-
-        RecvMsg {
-            msghdr,
-            _m: PhantomData
-        }
-    }
-
-    pub fn as_msghdr(&self) -> *const libc::msghdr {
-        &self.msghdr
-    }
-}
-
 
 bitflags::bitflags! {
     /// [`SubmissionQueueEvent`](SubmissionQueueEvent) configuration flags.
