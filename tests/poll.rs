@@ -6,7 +6,7 @@ fn test_poll_add() -> io::Result<()> {
     let mut ring = iou::IoUring::new(2)?;
     let (read, mut write) = net::UnixStream::pair()?;
     unsafe {
-        let mut sqe = ring.next_sqe().expect("no sqe");
+        let mut sqe = ring.next_sqe().expect("failed to get sqe");
         sqe.prep_poll_add(read.as_raw_fd(), iou::PollFlags::POLLIN);
         sqe.set_user_data(0xDEADBEEF);
         ring.submit_sqes()?;
@@ -28,12 +28,12 @@ fn test_poll_remove() -> io::Result<()> {
     let (read, _write) = net::UnixStream::pair()?;
 
     unsafe {
-        let mut sqe = ring.next_sqe().expect("no sqe");
+        let mut sqe = ring.next_sqe().expect("failed to get sqe");
         sqe.prep_poll_add(read.as_raw_fd(), iou::PollFlags::POLLIN);
         sqe.set_user_data(0xDEADBEEF);
         ring.submit_sqes()?;
 
-        let mut sqe = ring.next_sqe().expect("no sqe");
+        let mut sqe = ring.next_sqe().expect("failed to get sqe");
         sqe.prep_poll_remove(0xDEADBEEF);
         ring.submit_sqes()?;
         for _ in 0..2 {
