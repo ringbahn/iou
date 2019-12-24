@@ -5,7 +5,7 @@ use std::{
     os::unix::io::{AsRawFd, FromRawFd},
 };
 
-const MESSAGE: &'static [u8] = "Hello World".as_bytes();
+const MESSAGE: &'static [u8] = b"Hello World";
 
 #[test]
 fn accept() -> io::Result<()> {
