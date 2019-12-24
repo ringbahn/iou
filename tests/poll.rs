@@ -19,7 +19,7 @@ fn test_poll_add() -> io::Result<()> {
     let mask = unsafe { iou::PollFlags::from_bits_unchecked(cqe.result()? as _) };
     assert!(mask.contains(iou::PollFlags::POLLIN));
     let mut buf = [0; MESSAGE.len()];
-    read.read(&mut buf);
+    read.read(&mut buf)?;
     assert_eq!(buf, MESSAGE);
     Ok(())
 }
