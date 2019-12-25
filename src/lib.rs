@@ -55,7 +55,7 @@ use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 use std::time::Duration;
 
-pub use sqe::{SubmissionQueue, SubmissionQueueEvent, SubmissionFlags, FsyncFlags, Accept};
+pub use sqe::{SubmissionQueue, SubmissionQueueEvent, SubmissionFlags, FsyncFlags, AcceptParams};
 pub use cqe::{CompletionQueue, CompletionQueueEvent};
 pub use registrar::Registrar;
 

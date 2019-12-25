@@ -1,4 +1,4 @@
-use nix::sys::socket::{AddressFamily, SockProtocol, SockType, InetAddr, SockFlag};
+use nix::sys::socket::InetAddr;
 use std::{
     io::{self, Read, Write},
     net::{TcpListener, TcpStream},
@@ -35,7 +35,7 @@ fn accept() -> io::Result<()> {
 }
 
 #[test]
-fn accept_with_info() -> io::Result<()> {
+fn accept_with_params() -> io::Result<()> {
     let mut ring = iou::IoUring::new(1)?;
 
     let listener = TcpListener::bind(("0.0.0.0", 0))?;
@@ -47,9 +47,9 @@ fn accept_with_info() -> io::Result<()> {
     let fd = listener.as_raw_fd();
     let mut sq = ring.sq();
     let mut sqe = sq.next_sqe().expect("failed to get sqe");
-    let mut accept = iou::Accept::uninit();
+    let mut accept_params = iou::AcceptParams::uninit();
     unsafe {
-        sqe.prep_accept(fd, Some(&mut accept), iou::SockFlag::empty());
+        sqe.prep_accept(fd, Some(&mut accept_params), iou::SockFlag::empty());
         sq.submit()?;
     }
     let cqe = ring.wait_for_cqe()?;
@@ -59,35 +59,8 @@ fn accept_with_info() -> io::Result<()> {
     accepted_stream.read_exact(&mut accept_buf)?;
     assert_eq!(accept_buf, MESSAGE);
 
-    let addr = unsafe { accept.as_socket_addr()? };
+    let addr = unsafe { accept_params.as_socket_addr()? };
     let connection_addr = SockAddr::Inet(InetAddr::from_std(&connection_stream.local_addr()?));
     assert_eq!(addr, connection_addr);
-    Ok(())
-}
-
-#[test]
-fn connect() -> io::Result<()> {
-    let listener = TcpListener::bind(("0.0.0.0", 0))?;
-    listener.set_nonblocking(true)?;
-    let listener_addr = iou::SockAddr::new_inet(InetAddr::from_std(&listener.local_addr()?));
-
-    let socket = nix::sys::socket::socket(
-        AddressFamily::Inet,
-        SockType::Stream,
-        SockFlag::SOCK_NONBLOCK,
-        SockProtocol::Tcp,
-    )
-    .map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to create socket"))?;
-
-    let mut ring = iou::IoUring::new(1)?;
-    let mut sqe = ring.next_sqe().expect("failed to get sqe");
-    unsafe {
-        sqe.prep_connect(socket, &listener_addr);
-        sqe.set_user_data(42);
-        ring.submit_sqes()?;
-    }
-    let cqe = ring.wait_for_cqe()?;
-    let _res = cqe.result()?;
-    assert_eq!(cqe.user_data(), 42);
     Ok(())
 }
