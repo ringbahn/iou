@@ -300,8 +300,12 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_accept(&mut self, fd: RawFd, flags: SockFlag) {
-        uring_sys::io_uring_prep_accept(self.sqe, fd, std::ptr::null_mut(), std::ptr::null_mut(), flags.bits())
+    pub unsafe fn prep_accept(&mut self, fd: RawFd, accept: Option<&mut Accept>, flags: SockFlag) {
+        let (addr, len) = match accept {
+            Some(accept) => (accept.storage.as_mut_ptr() as *mut _, &mut accept.len as *mut _ as *mut _),
+            None => (std::ptr::null_mut(), std::ptr::null_mut())
+        };
+        uring_sys::io_uring_prep_accept(self.sqe, fd, addr, len, flags.bits())
     }
 
     /// Prepare a no-op event.
@@ -378,6 +382,33 @@ impl<'a> SubmissionQueueEvent<'a> {
 
 unsafe impl<'a> Send for SubmissionQueueEvent<'a> { }
 unsafe impl<'a> Sync for SubmissionQueueEvent<'a> { }
+
+pub struct Accept {
+    storage: mem::MaybeUninit<nix::sys::socket::sockaddr_storage>,
+    len: usize,
+}
+
+impl Accept {
+    pub fn uninit() -> Self {
+        let storage = mem::MaybeUninit::uninit();
+        let len = mem::size_of::<nix::sys::socket::sockaddr_storage>();
+        Accept {
+            storage,
+            len
+        }
+    }
+
+    pub unsafe fn as_socket_addr(&self) -> io::Result<SockAddr> {
+        let storage = &*self.storage.as_ptr();
+        nix::sys::socket::sockaddr_storage_to_addr(storage, self.len).map_err(|e| {
+            let err_no = e.as_errno();
+            match err_no {
+                Some(err_no) => io::Error::from_raw_os_error(err_no as _),
+                None => io::Error::new(io::ErrorKind::Other, "Unknown error")
+            }
+        })
+    }
+}
 
 bitflags::bitflags! {
     /// [`SubmissionQueueEvent`](SubmissionQueueEvent) configuration flags.
