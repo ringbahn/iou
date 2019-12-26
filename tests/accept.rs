@@ -9,6 +9,7 @@ use iou::SockAddr;
 const MESSAGE: &'static [u8] = b"Hello World";
 
 #[test]
+#[ignore] //  kernel 5.5 needed for accept
 fn accept() -> io::Result<()> {
     let mut ring = iou::IoUring::new(1)?;
 
@@ -35,6 +36,7 @@ fn accept() -> io::Result<()> {
 }
 
 #[test]
+#[ignore] // kernel 5.5 needed for accept
 fn accept_with_params() -> io::Result<()> {
     let mut ring = iou::IoUring::new(1)?;
 

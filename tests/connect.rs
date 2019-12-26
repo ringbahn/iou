@@ -2,6 +2,7 @@ use nix::sys::socket::{AddressFamily, SockProtocol, SockType, InetAddr, SockFlag
 use std::{io, net::TcpListener};
 
 #[test]
+#[ignore] // kernel 5.5 needed for connect
 fn connect() -> io::Result<()> {
     let listener = TcpListener::bind(("0.0.0.0", 0))?;
     listener.set_nonblocking(true)?;
