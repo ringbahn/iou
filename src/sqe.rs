@@ -112,6 +112,7 @@ impl<'ring> SubmissionQueue<'ring> {
                 sqe.clear();
                 unsafe {
                     sqe.prep_timeout(&ts);
+                    sqe.set_user_data(uring_sys::LIBURING_UDATA_TIMEOUT);
                     return resultify!(uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
                 }
             }
