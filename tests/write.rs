@@ -23,14 +23,16 @@ fn write_test() -> io::Result<()> {
     path.push("text.tmp");
 
     let _ = fs::remove_file(&path);
+    
     let n = {
         let mut io_uring = iou::IoUring::new(32)?;
+        let bufs = [io::IoSlice::new(TEXT)];
+
 
         let file = File::create(&path)?;
         unsafe {
             let mut sq = io_uring.sq();
             let mut sqe = sq.next_sqe().unwrap();
-            let bufs = [io::IoSlice::new(TEXT)];
             sqe.prep_write_vectored(file.as_raw_fd(), &bufs, 0);
             sqe.set_user_data(0xDEADBEEF);
             io_uring.sq().submit()?;
@@ -38,6 +40,7 @@ fn write_test() -> io::Result<()> {
 
         let mut cq = io_uring.cq();
         let cqe = cq.wait_for_cqe()?;
+        drop(bufs); // hold bufs until after io completes
         assert_eq!(cqe.user_data(), 0xDEADBEEF);
         cqe.result()? as usize
     };

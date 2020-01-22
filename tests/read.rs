@@ -1,6 +1,3 @@
-#![feature(test)]
-extern crate test;
-
 use std::fs::File;
 use std::io::{self, IoSliceMut};
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -28,13 +25,11 @@ fn read_test() -> io::Result<()> {
     path.push("text.txt");
     let file = File::open(&path)?;
     let mut buf1 = [0; 4096];
+    let mut bufs = [io::IoSliceMut::new(&mut buf1)];
 
     unsafe {
-        let mut bufs = [io::IoSliceMut::new(&mut buf1)];
         prep(&mut io_uring, &mut bufs, file.as_raw_fd())?;
     }
-
-    let dirt = dirty_stack();
 
     let n = {
         let mut cq = io_uring.cq();
@@ -44,8 +39,6 @@ fn read_test() -> io::Result<()> {
     };
 
     assert_eq!(&TEXT[..n], &buf1[..n]);
-    drop(dirt);
-
     Ok(())
 }
 
@@ -57,9 +50,4 @@ unsafe fn prep(ring: &mut iou::IoUring, bufs: &mut [IoSliceMut], fd: RawFd) -> i
     sqe.set_user_data(0xDEADBEEF);
     sq.submit()?;
     Ok(())
-}
-
-#[inline(never)]
-fn dirty_stack() -> [u8; 4096] {
-    test::black_box([0; 4096])
 }
