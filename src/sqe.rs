@@ -300,7 +300,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_accept(&mut self, fd: RawFd, accept: Option<&mut AcceptParams>, flags: SockFlag) {
+    pub unsafe fn prep_accept(&mut self, fd: RawFd, accept: Option<&mut SockAddrStorage>, flags: SockFlag) {
         let (addr, len) = match accept {
             Some(accept) => (accept.storage.as_mut_ptr() as *mut _, &mut accept.len as *mut _ as *mut _),
             None => (std::ptr::null_mut(), std::ptr::null_mut())
@@ -383,16 +383,16 @@ impl<'a> SubmissionQueueEvent<'a> {
 unsafe impl<'a> Send for SubmissionQueueEvent<'a> { }
 unsafe impl<'a> Sync for SubmissionQueueEvent<'a> { }
 
-pub struct AcceptParams {
+pub struct SockAddrStorage {
     storage: mem::MaybeUninit<nix::sys::socket::sockaddr_storage>,
     len: usize,
 }
 
-impl AcceptParams {
+impl SockAddrStorage {
     pub fn uninit() -> Self {
         let storage = mem::MaybeUninit::uninit();
         let len = mem::size_of::<nix::sys::socket::sockaddr_storage>();
-        AcceptParams {
+        SockAddrStorage {
             storage,
             len
         }
