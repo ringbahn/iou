@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use super::IoUring;
+use super::{PollFlags, SockAddr, SockFlag};
 
 /// The queue of pending IO events.
 ///
@@ -274,13 +275,38 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_poll_add(&mut self, fd: RawFd, poll_mask: PollMask) {
-        uring_sys::io_uring_prep_poll_add(self.sqe, fd, poll_mask.bits())
+    pub unsafe fn prep_timeout_remove(&mut self, user_data: u64) {
+        uring_sys::io_uring_prep_timeout_remove(self.sqe, user_data as _, 0);
+    }
+
+    #[inline]
+    pub unsafe fn prep_link_timeout(&mut self, ts: &uring_sys::__kernel_timespec) {
+        uring_sys::io_uring_prep_link_timeout(self.sqe, ts as *const _ as *mut _, 0);
+    }
+
+    #[inline]
+    pub unsafe fn prep_poll_add(&mut self, fd: RawFd, poll_flags: PollFlags) {
+        uring_sys::io_uring_prep_poll_add(self.sqe, fd, poll_flags.bits())
     }
 
     #[inline]
     pub unsafe fn prep_poll_remove(&mut self, user_data: u64) {
         uring_sys::io_uring_prep_poll_remove(self.sqe, user_data as _)
+    }
+
+    #[inline]
+    pub unsafe fn prep_connect(&mut self, fd: RawFd, socket_addr: &SockAddr) {
+        let (addr, len) = socket_addr.as_ffi_pair();
+        uring_sys::io_uring_prep_connect(self.sqe, fd, addr as *const _ as *mut _, len);
+    }
+
+    #[inline]
+    pub unsafe fn prep_accept(&mut self, fd: RawFd, accept: Option<&mut SockAddrStorage>, flags: SockFlag) {
+        let (addr, len) = match accept {
+            Some(accept) => (accept.storage.as_mut_ptr() as *mut _, &mut accept.len as *mut _ as *mut _),
+            None => (std::ptr::null_mut(), std::ptr::null_mut())
+        };
+        uring_sys::io_uring_prep_accept(self.sqe, fd, addr, len, flags.bits())
     }
 
     /// Prepare a no-op event.
@@ -358,6 +384,33 @@ impl<'a> SubmissionQueueEvent<'a> {
 unsafe impl<'a> Send for SubmissionQueueEvent<'a> { }
 unsafe impl<'a> Sync for SubmissionQueueEvent<'a> { }
 
+pub struct SockAddrStorage {
+    storage: mem::MaybeUninit<nix::sys::socket::sockaddr_storage>,
+    len: usize,
+}
+
+impl SockAddrStorage {
+    pub fn uninit() -> Self {
+        let storage = mem::MaybeUninit::uninit();
+        let len = mem::size_of::<nix::sys::socket::sockaddr_storage>();
+        SockAddrStorage {
+            storage,
+            len
+        }
+    }
+
+    pub unsafe fn as_socket_addr(&self) -> io::Result<SockAddr> {
+        let storage = &*self.storage.as_ptr();
+        nix::sys::socket::sockaddr_storage_to_addr(storage, self.len).map_err(|e| {
+            let err_no = e.as_errno();
+            match err_no {
+                Some(err_no) => io::Error::from_raw_os_error(err_no as _),
+                None => io::Error::new(io::ErrorKind::Other, "Unknown error")
+            }
+        })
+    }
+}
+
 bitflags::bitflags! {
     /// [`SubmissionQueueEvent`](SubmissionQueueEvent) configuration flags.
     ///
@@ -385,18 +438,5 @@ bitflags::bitflags! {
 bitflags::bitflags! {
     pub struct TimeoutFlags: u32 {
         const TIMEOUT_ABS   = 1 << 0;
-    }
-}
-
-bitflags::bitflags! {
-    pub struct PollMask: libc::c_short {
-        const POLLIN     = libc::POLLIN;
-        const POLLPRI    = libc::POLLPRI;
-        const POLLOUT    = libc::POLLOUT;
-        const POLLERR    = libc::POLLERR;
-        const POLLHUP    = libc::POLLHUP;
-        const POLLNVAL   = libc::POLLNVAL;
-        const POLLRDNORM = libc::POLLRDNORM;
-        const POLLRDBAND = libc::POLLRDBAND;
     }
 }

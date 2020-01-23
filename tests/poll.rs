@@ -1,79 +1,66 @@
-#![feature(test)]
-extern crate libc;
-extern crate test;
-
-use std::{io, os::unix::io::RawFd};
-
-pub fn pipe() -> io::Result<(RawFd, RawFd)> {
-    unsafe {
-        let mut fds = core::mem::MaybeUninit::<[libc::c_int; 2]>::uninit();
-
-        let res = libc::pipe(fds.as_mut_ptr() as *mut libc::c_int);
-
-        if res < 0 {
-            Err(io::Error::from_raw_os_error(-res))
-        } else {
-            Ok((fds.assume_init()[0], fds.assume_init()[1]))
-        }
-    }
-}
+use std::{
+    io::{self, Read, Write},
+    os::unix::{io::AsRawFd, net},
+};
+const MESSAGE: &'static [u8] = b"Hello World";
 
 #[test]
 fn test_poll_add() -> io::Result<()> {
     let mut ring = iou::IoUring::new(2)?;
-    let (read, write) = pipe()?;
-
+    let (mut read, mut write) = net::UnixStream::pair()?;
     unsafe {
-        let mut sqe = ring.next_sqe().expect("no sqe");
-        sqe.prep_poll_add(read, iou::PollMask::POLLIN);
+        let mut sqe = ring.next_sqe().expect("failed to get sqe");
+        sqe.prep_poll_add(read.as_raw_fd(), iou::PollFlags::POLLIN);
         sqe.set_user_data(0xDEADBEEF);
         ring.submit_sqes()?;
     }
 
-    let res = unsafe {
-        let buf = b"hello";
-        libc::write(
-            write,
-            buf.as_ptr() as *const libc::c_void,
-            buf.len() as libc::size_t,
-        )
-    };
-
-    if res < 0 {
-        return Err(io::Error::from_raw_os_error(-res as _));
-    }
+    write.write(MESSAGE)?;
 
     let cqe = ring.wait_for_cqe()?;
     assert_eq!(cqe.user_data(), 0xDEADBEEF);
-    let mask = unsafe { iou::PollMask::from_bits_unchecked(cqe.result()? as _) };
-    assert!(mask.contains(iou::PollMask::POLLIN));
-    unsafe {
-        libc::close(write);
-        libc::close(read);
-    }
+    let mask = unsafe { iou::PollFlags::from_bits_unchecked(cqe.result()? as _) };
+    assert!(mask.contains(iou::PollFlags::POLLIN));
+    let mut buf = [0; MESSAGE.len()];
+    read.read(&mut buf)?;
+    assert_eq!(buf, MESSAGE);
     Ok(())
 }
 
 #[test]
 fn test_poll_remove() -> io::Result<()> {
     let mut ring = iou::IoUring::new(2)?;
-    let (read, write) = pipe()?;
-
+    let (read, _write) = net::UnixStream::pair()?;
+    let uname = nix::sys::utsname::uname();
+    let version = semver::Version::parse(uname.release());
     unsafe {
-        let mut sqe = ring.next_sqe().expect("no sqe");
-        sqe.prep_poll_add(read, iou::PollMask::POLLIN);
+        let mut sqe = ring.next_sqe().expect("failed to get sqe");
+        sqe.prep_poll_add(read.as_raw_fd(), iou::PollFlags::POLLIN);
         sqe.set_user_data(0xDEADBEEF);
         ring.submit_sqes()?;
 
-        let mut sqe = ring.next_sqe().expect("no sqe");
+        let mut sqe = ring.next_sqe().expect("failed to get sqe");
         sqe.prep_poll_remove(0xDEADBEEF);
+        sqe.set_user_data(42);
         ring.submit_sqes()?;
         for _ in 0..2 {
             let cqe = ring.wait_for_cqe()?;
-            let _ = cqe.result()?;
+            let user_data = cqe.user_data();
+            if version < semver::Version::parse("5.5.0-0") {
+                let _ = cqe.result()?;
+            } else if user_data == 0xDEADBEEF {
+                let err = cqe
+                    .result()
+                    .expect_err("on kernels >=5.5 error is expected");
+                let err_no = nix::errno::Errno::from_i32(
+                    err.raw_os_error()
+                        .expect("on kernels >=5.5 os_error is expected"),
+                );
+                assert_eq!(err_no, nix::errno::Errno::ECANCELED);
+            } else {
+                let _ = cqe.result()?;
+            }
         }
-        libc::close(write);
-        libc::close(read);
         Ok(())
     }
 }

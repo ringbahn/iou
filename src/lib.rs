@@ -55,9 +55,21 @@ use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 use std::time::Duration;
 
-pub use sqe::{SubmissionQueue, SubmissionQueueEvent, SubmissionFlags, FsyncFlags, PollMask};
+pub use sqe::{SubmissionQueue, SubmissionQueueEvent, SubmissionFlags, FsyncFlags, SockAddrStorage};
 pub use cqe::{CompletionQueue, CompletionQueueEvent};
 pub use registrar::Registrar;
+
+pub use nix::poll::PollFlags;
+pub use nix::sys::socket::{
+    SockAddr,
+    SockFlag,
+    InetAddr,
+    UnixAddr,
+    NetlinkAddr,
+    AlgAddr,
+    LinkAddr,
+    VsockAddr
+};
 
 bitflags::bitflags! {
     /// `IoUring` initialization flags for advanced use cases.
