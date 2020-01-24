@@ -130,6 +130,10 @@ unsafe impl<'ring> Sync for SubmissionQueue<'ring> { }
 ///
 /// Can be configured with a set of [`SubmissionFlags`](crate::sqe::SubmissionFlags).
 ///
+/// # Safety
+/// The submission event API is inherently unsafe. You must ensure all files and references are valid until the event completes.
+///
+/// The kernel will complete events out of order. Specify event dependencies using `SubmissionFlags::IO_LINK` or `SubmissionFlags::IO_DRAIN`.
 pub struct SubmissionQueueEvent<'a> {
     sqe: &'a mut uring_sys::io_uring_sqe,
 }
@@ -173,6 +177,42 @@ impl<'a> SubmissionQueueEvent<'a> {
         self.sqe.flags = flags.bits() as _;
     }
 
+    /// Prepare an atomic vectored read using the `readv` syscall.
+    ///
+    /// # Safety
+    /// You must ensure the kernel has exclusive access to the file and destination buffers until
+    /// the end of the event.
+    /// ```
+    /// # use iou::IoUring;
+    /// # use std::fs::File;
+    /// # use std::io::IoSliceMut;
+    /// # use std::os::unix::io::AsRawFd;
+    /// # fn main() -> std::io::Result<()> {
+    /// # let mut ring = IoUring::new(1)?;
+    /// # let mut sq_event = ring.next_sqe().unwrap();
+    /// let fd = File::open("props/alphabet.txt")?; // abcdefg...
+    ///
+    /// let mut buf1 = [0; 2];
+    /// let mut buf2 = [0; 1];
+    /// let mut buf3 = [0; 3];
+    ///
+    /// // buffer slice must live until completion
+    /// let mut bufs = [IoSliceMut::new(&mut buf1),
+    ///                 IoSliceMut::new(&mut buf2),
+    ///                 IoSliceMut::new(&mut buf3)];
+    ///
+    /// let offset = 2; // start readv at c
+    /// unsafe { sq_event.prep_read_vectored(fd.as_raw_fd(), &mut bufs, offset) }
+    ///
+    /// ring.submit_sqes();
+    /// let cqe = ring.wait_for_cqe()?;
+    ///
+    /// assert_eq!(&buf1, b"cd");
+    /// assert_eq!(&buf2, b"e");
+    /// assert_eq!(&buf3, b"fgh");
+    /// # Ok(())
+    /// # }
+    /// ```
     #[inline]
     pub unsafe fn prep_read_vectored(
         &mut self,
