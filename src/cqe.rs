@@ -54,6 +54,16 @@ impl<'ring> CompletionQueue<'ring> {
             Ok(CompletionQueueEvent::new(self.ring, &mut *cqe.assume_init()))
         }
     }
+
+    pub fn num_cqes_ready(&self) -> u32 {
+        unsafe {
+            uring_sys::io_uring_cq_ready(self.ring.as_ptr())
+        }
+    }
+
+    pub fn has_ready_cqes(&self) -> bool {
+        self.num_cqes_ready() > 0
+    }
 }
 
 unsafe impl<'ring> Send for CompletionQueue<'ring> { }
