@@ -218,13 +218,11 @@ impl IoUring {
     }
 
     pub fn sq_space_left(&self) -> u32 {
-        unsafe {
-            uring_sys::io_uring_sq_space_left(&self.ring as *const _ as *mut _)
-        }
+        SubmissionQueue::new(&self).space_left()
     }
 
     pub fn sq_has_space(&self) -> bool {
-            self.sq_space_left() > 0
+            SubmissionQueue::new(&self).has_space()
     }
 
     pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
@@ -300,13 +298,11 @@ impl IoUring {
     }
 
     pub fn num_cqes_ready(&self) -> u32 {
-        unsafe {
-            uring_sys::io_uring_cq_ready(self.raw() as *const _ as *mut _)
-        }
+        CompletionQueue::new(&self).num_cqes_ready()
     }
 
     pub fn has_ready_cqes(&self) -> bool {
-        self.num_cqes_ready() > 0
+        CompletionQueue::new(&self).has_ready_cqes()
     }
 }
 
