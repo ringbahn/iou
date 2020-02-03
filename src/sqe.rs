@@ -89,6 +89,16 @@ impl<'ring> SubmissionQueue<'ring> {
         }
     }
 
+    pub fn space_left(&self) -> u32 {
+        unsafe {
+            uring_sys::io_uring_sq_space_left(self.ring.as_ptr())
+        }
+    }
+
+    pub fn has_space(&self) -> bool {
+        self.space_left() > 0
+    }
+
     /// Submit all events in the queue. Returns the number of submitted events.
     ///
     /// If this function encounters any IO errors an [`io::Error`](std::io::Result) variant is returned.

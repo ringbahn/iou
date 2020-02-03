@@ -217,6 +217,14 @@ impl IoUring {
         self.sq().submit_and_wait_with_timeout(wait_for, duration)
     }
 
+    pub fn sq_space_left(&self) -> u32 {
+        SubmissionQueue::new(&self).space_left()
+    }
+
+    pub fn sq_has_space(&self) -> bool {
+            SubmissionQueue::new(&self).has_space()
+    }
+
     pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
@@ -287,6 +295,14 @@ impl IoUring {
 
     pub fn raw_mut(&mut self) -> &mut uring_sys::io_uring {
         &mut self.ring
+    }
+
+    pub fn num_cqes_ready(&self) -> u32 {
+        CompletionQueue::new(&self).num_cqes_ready()
+    }
+
+    pub fn has_ready_cqes(&self) -> bool {
+        CompletionQueue::new(&self).has_ready_cqes()
     }
 }
 
