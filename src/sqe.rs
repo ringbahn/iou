@@ -413,8 +413,6 @@ impl SockAddrStorage {
 
 bitflags::bitflags! {
     /// [`SubmissionQueueEvent`](SubmissionQueueEvent) configuration flags.
-    ///
-    /// Use a [`Registrar`](crate::registrar::Registrar) to register files for the `FIXED_FILE` flag.
     pub struct SubmissionFlags: u8 {
         /// This event's file descriptor is an index into the preregistered set of files.
         const FIXED_FILE    = 1 << 0;   /* use fixed fileset */

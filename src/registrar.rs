@@ -5,6 +5,11 @@ use std::os::unix::io::RawFd;
 
 use super::IoUring;
 
+/// A `Registrar` creates ahead-of-time kernel references to files and user buffers.
+///
+/// Pre-registering kernel IO references greatly reduces per-IO overhead.
+/// The kernel no longer needs to obtain and drop file references or map kernel memory for each operation.
+/// Consider registering frequently used files and buffers.
 pub struct Registrar<'ring> {
     ring: NonNull<uring_sys::io_uring>,
     _marker: PhantomData<&'ring mut IoUring>,
@@ -17,6 +22,8 @@ impl<'ring> Registrar<'ring> {
             _marker: PhantomData,
         }
     }
+
+    /// Register a set of buffers to be mapped into the kernel.
     pub fn register_buffers(&self, buffers: &[io::IoSlice<'_>]) -> io::Result<()> {
         let len = buffers.len();
         let addr = buffers.as_ptr() as *const _;
@@ -26,6 +33,8 @@ impl<'ring> Registrar<'ring> {
         Ok(())
     }
 
+    /// Unregister all currently registered buffers. An explicit call to this method is often unecessary,
+    /// because all buffers will be unregistered automatically when the ring is dropped.
     pub fn unregister_buffers(&self) -> io::Result<()> {
         let _: i32 = resultify!(unsafe {
             uring_sys::io_uring_unregister_buffers(self.ring.as_ptr())
@@ -42,6 +51,8 @@ impl<'ring> Registrar<'ring> {
         Ok(())
     }
 
+    /// Unregister all currently registered files. An explicit call to this method is often unecessary,
+    /// because all files will be unregistered automatically when the ring is dropped.
     pub fn unregister_files(&self) -> io::Result<()> {
         let _: i32 = resultify!(unsafe {
             uring_sys::io_uring_unregister_files(self.ring.as_ptr())
