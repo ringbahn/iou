@@ -63,33 +63,43 @@ unsafe impl<'ring> Sync for CompletionQueue<'ring> { }
 pub struct CompletionQueueEvent {
     user_data: u64,
     res: i32,
+    _flags: u32,
 }
 
 impl CompletionQueueEvent {
+    pub fn from_raw(user_data: u64, res: i32, flags: u32) -> CompletionQueueEvent {
+        CompletionQueueEvent {
+            user_data, res, _flags: flags,
+        }
+    }
+
     pub(crate) fn new(ring: NonNull<uring_sys::io_uring>, cqe: &mut uring_sys::io_uring_cqe) -> CompletionQueueEvent {
         let user_data = cqe.user_data;
         let res = cqe.res;
+        let flags = cqe.flags;
+
         unsafe {
             uring_sys::io_uring_cqe_seen(ring.as_ptr(), cqe);
         }
 
-        CompletionQueueEvent { user_data, res }
+        CompletionQueueEvent::from_raw(user_data, res, flags)
     }
 
     /// Check whether this event is a timeout.
     /// ```
-    /// # use iou::{IoUring, SubmissionQueueEvent};
+    /// # use iou::{IoUring, SubmissionQueueEvent, CompletionQueueEvent};
     /// # fn main() -> std::io::Result<()> {
     /// # let mut ring = IoUring::new(2)?;
     /// # let mut sqe = ring.next_sqe().unwrap();
     /// #
-    /// # // make a fake timeout with a nop for testing
+    /// # // make a nop for testing
     /// # unsafe { sqe.prep_nop(); }
     /// # ring.submit_sqes()?;
     /// #
     /// # let mut cq_event;
     /// cq_event = ring.wait_for_cqe()?;
-    /// # cq_event.raw_mut().user_data = uring_sys::LIBURING_UDATA_TIMEOUT;
+    /// # // rewrite to be a fake timeout
+    /// # let cq_event = CompletionQueueEvent::from_raw(uring_sys::LIBURING_UDATA_TIMEOUT, 0, 0);
     /// assert!(cq_event.is_timeout());
     /// # Ok(())
     /// # }
