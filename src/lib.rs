@@ -217,28 +217,25 @@ impl IoUring {
         self.sq().submit_and_wait_with_timeout(wait_for, duration)
     }
 
-    pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
+    pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
             let count = uring_sys::io_uring_peek_batch_cqe(&mut self.ring, cqe.as_mut_ptr(), 1);
 
             if count > 0 {
-                Some(CompletionQueueEvent::new(NonNull::from(
-                    &self.ring),
-                    &mut *cqe.assume_init()
-                ))
+                Some(CompletionQueueEvent::new(NonNull::from(&self.ring), &mut *cqe.assume_init()))
             } else {
                 None
             }
         }
     }
 
-    pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent<'_>> {
+    pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent> {
         self.inner_wait_for_cqes(1, ptr::null())
     }
 
     pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
-        -> io::Result<CompletionQueueEvent<'_>>
+        -> io::Result<CompletionQueueEvent>
     {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
@@ -248,12 +245,12 @@ impl IoUring {
         self.inner_wait_for_cqes(1, &ts)
     }
 
-    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvent<'_>> {
+    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvent> {
         self.inner_wait_for_cqes(count as _, ptr::null())
     }
 
     pub fn wait_for_cqes_with_timeout(&mut self, count: usize, duration: Duration)
-        -> io::Result<CompletionQueueEvent<'_>>
+        -> io::Result<CompletionQueueEvent>
     {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
@@ -264,7 +261,7 @@ impl IoUring {
     }
 
     fn inner_wait_for_cqes(&mut self, count: u32, ts: *const uring_sys::__kernel_timespec)
-        -> io::Result<CompletionQueueEvent<'_>>
+        -> io::Result<CompletionQueueEvent>
     {
         unsafe {
             let mut cqe = MaybeUninit::uninit();

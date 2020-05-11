@@ -23,7 +23,7 @@ impl<'ring> CompletionQueue<'ring> {
         }
     }
 
-    pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent<'_>> {
+    pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
             let count = uring_sys::io_uring_peek_batch_cqe(self.ring.as_ptr(), cqe.as_mut_ptr(), 1);
@@ -35,11 +35,11 @@ impl<'ring> CompletionQueue<'ring> {
         }
     }
 
-    pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent<'_>> {
+    pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent> {
         self.wait_for_cqes(1)
     }
 
-    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvent<'_>> {
+    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvent> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
@@ -60,14 +60,20 @@ unsafe impl<'ring> Send for CompletionQueue<'ring> { }
 unsafe impl<'ring> Sync for CompletionQueue<'ring> { }
 
 /// A completed IO event.
-pub struct CompletionQueueEvent<'a> {
-    ring: NonNull<uring_sys::io_uring>,
-    cqe: &'a mut uring_sys::io_uring_cqe,
+pub struct CompletionQueueEvent {
+    user_data: u64,
+    res: i32,
 }
 
-impl<'a> CompletionQueueEvent<'a> {
-    pub(crate) fn new(ring: NonNull<uring_sys::io_uring>, cqe: &'a mut uring_sys::io_uring_cqe) -> CompletionQueueEvent<'a> {
-        CompletionQueueEvent { ring, cqe }
+impl CompletionQueueEvent {
+    pub(crate) fn new(ring: NonNull<uring_sys::io_uring>, cqe: &mut uring_sys::io_uring_cqe) -> CompletionQueueEvent {
+        let user_data = cqe.user_data;
+        let res = cqe.res;
+        unsafe {
+            uring_sys::io_uring_cqe_seen(ring.as_ptr(), cqe);
+        }
+
+        CompletionQueueEvent { user_data, res }
     }
 
     /// Check whether this event is a timeout.
@@ -89,33 +95,17 @@ impl<'a> CompletionQueueEvent<'a> {
     /// # }
     /// ```
     pub fn is_timeout(&self) -> bool {
-        self.cqe.user_data == uring_sys::LIBURING_UDATA_TIMEOUT
+        self.user_data == uring_sys::LIBURING_UDATA_TIMEOUT
     }
 
     pub fn user_data(&self) -> u64 {
-        self.cqe.user_data as u64
+        self.user_data as u64
     }
 
     pub fn result(&self) -> io::Result<usize> {
-        resultify!(self.cqe.res)
-    }
-
-    pub fn raw(&self) -> &uring_sys::io_uring_cqe {
-        self.cqe
-    }
-
-    pub fn raw_mut(&mut self) -> &mut uring_sys::io_uring_cqe {
-        self.cqe
+        resultify!(self.res)
     }
 }
 
-impl<'a> Drop for CompletionQueueEvent<'a> {
-    fn drop(&mut self) {
-        unsafe {
-            uring_sys::io_uring_cqe_seen(self.ring.as_ptr(), self.cqe);
-        }
-    }
-}
-
-unsafe impl<'a> Send for CompletionQueueEvent<'a> { }
-unsafe impl<'a> Sync for CompletionQueueEvent<'a> { }
+unsafe impl Send for CompletionQueueEvent { }
+unsafe impl Sync for CompletionQueueEvent { }
