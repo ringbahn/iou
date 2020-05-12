@@ -12,7 +12,9 @@ edition = "2018"
 [dependencies]
 bitflags = "1.2.0"
 nix = "0.16.0"
-uring-sys = "1.0.0-beta"
+
+[dependencies.uring-sys]
+git = "https://github.com/withoutboats/uring-sys"
 
 [dev-dependencies]
 semver = "0.9.0"

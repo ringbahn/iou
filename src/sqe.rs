@@ -174,6 +174,18 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
+    pub unsafe fn prep_read(
+        &mut self,
+        fd: RawFd,
+        buf: &mut [u8],
+        offset: usize,
+    ) {
+        let len = buf.len();
+        let addr = buf.as_mut_ptr();
+        uring_sys::io_uring_prep_read(self.sqe, fd, addr as _, len as _, offset as _);
+    }
+
+    #[inline]
     pub unsafe fn prep_read_vectored(
         &mut self,
         fd: RawFd,
@@ -201,6 +213,18 @@ impl<'a> SubmissionQueueEvent<'a> {
                                       len as _,
                                       offset as _,
                                       buf_index as _);
+    }
+
+    #[inline]
+    pub unsafe fn prep_write(
+        &mut self,
+        fd: RawFd,
+        buf: &[u8],
+        offset: usize,
+    ) {
+        let len = buf.len();
+        let addr = buf.as_ptr();
+        uring_sys::io_uring_prep_write(self.sqe, fd, addr as _, len as _, offset as _);
     }
 
     #[inline]
