@@ -194,20 +194,15 @@ impl<'a> SubmissionQueueEvent<'a> {
                                        buf as _);
     }
 
-    #[inline]
-    pub unsafe fn prep_openat(
+    pub unsafe fn prep_read(
         &mut self,
         fd: RawFd,
-        path: &CStr,
-        flags: libc::c_int,
-        mode: OpenMode,
+        buf: &mut [u8],
+        offset: usize,
     ) {
-        uring_sys::io_uring_prep_openat(self.sqe, fd, path.as_ptr() as _, flags as _, mode.bits());
-    }
-
-    #[inline]
-    pub unsafe fn prep_close(&mut self, fd: RawFd) {
-        uring_sys::io_uring_prep_close(self.sqe, fd);
+        let len = buf.len();
+        let addr = buf.as_mut_ptr();
+        uring_sys::io_uring_prep_read(self.sqe, fd, addr as _, len as _, offset as _);
     }
 
     #[inline]
@@ -245,19 +240,15 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_read(
+    pub unsafe fn prep_write(
         &mut self,
         fd: RawFd,
-        buf: &mut [u8],
-        offset: u64,
+        buf: &[u8],
+        offset: usize,
     ) {
         let len = buf.len();
-        let addr = buf.as_mut_ptr();
-        uring_sys::io_uring_prep_read(self.sqe,
-                                      fd,
-                                      addr as _,
-                                      len as _,
-                                      offset as _);
+        let addr = buf.as_ptr();
+        uring_sys::io_uring_prep_write(self.sqe, fd, addr as _, len as _, offset as _);
     }
 
     #[inline]
@@ -276,22 +267,6 @@ impl<'a> SubmissionQueueEvent<'a> {
                                     len as _,
                                     offset as _);
         if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
-    }
-
-    #[inline]
-    pub unsafe fn prep_write(
-        &mut self,
-        fd: RawFd,
-        buf: &[u8],
-        offset: u64,
-    ) {
-        let len = buf.len();
-        let addr = buf.as_ptr();
-        uring_sys::io_uring_prep_write(self.sqe,
-                                      fd,
-                                      addr as _,
-                                      len as _,
-                                      offset as _);
     }
 
     #[inline]
@@ -330,6 +305,37 @@ impl<'a> SubmissionQueueEvent<'a> {
                                         offset as _,
                                         size as _);
     }
+
+    #[inline]
+    pub unsafe fn prep_statx(
+        &mut self,
+        dirfd: RawFd,
+        path: &CStr,
+        flags: StatxFlags,
+        mask: StatxMode,
+        buf: &mut libc::statx,
+    ) {
+        uring_sys::io_uring_prep_statx(self.sqe, dirfd, path.as_ptr() as _,
+                                       flags.bits() as _, mask.bits() as _,
+                                       buf as _);
+    }
+
+    #[inline]
+    pub unsafe fn prep_openat(
+        &mut self,
+        fd: RawFd,
+        path: &CStr,
+        flags: libc::c_int,
+        mode: OpenMode,
+    ) {
+        uring_sys::io_uring_prep_openat(self.sqe, fd, path.as_ptr() as _, flags as _, mode.bits());
+    }
+
+    #[inline]
+    pub unsafe fn prep_close(&mut self, fd: RawFd) {
+        uring_sys::io_uring_prep_close(self.sqe, fd);
+    }
+
 
     /// Prepare a timeout event.
     /// ```

@@ -115,6 +115,10 @@ impl CompletionQueueEvent {
     pub fn result(&self) -> io::Result<usize> {
         resultify!(self.res)
     }
+
+    pub fn raw_result(&self) -> i32 {
+        self.res
+    }
 }
 
 unsafe impl Send for CompletionQueueEvent { }
