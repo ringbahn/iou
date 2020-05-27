@@ -1,6 +1,6 @@
 [package]
 name = "iou"
-version = "0.0.0-ringbahn"
+version = "0.0.0-ringbahn.1"
 description = "io_uring bindings"
 documentation = "https://docs.rs/iou"
 repository = "https://github.com/withoutboats/iou"
