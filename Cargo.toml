@@ -1,6 +1,6 @@
 [package]
 name = "iou"
-version = "0.0.0-ringbahn"
+version = "0.0.0-ringbahn.1"
 description = "io_uring bindings"
 documentation = "https://docs.rs/iou"
 repository = "https://github.com/withoutboats/iou"
@@ -12,7 +12,7 @@ edition = "2018"
 [dependencies]
 bitflags = "1.2.0"
 nix = "0.16.0"
-uring-sys = "0.6.0"
+uring-sys = "0.6.1"
 
 [dev-dependencies]
 semver = "0.9.0"
