@@ -409,6 +409,11 @@ impl<'a> SubmissionQueueEvent<'a> {
         uring_sys::io_uring_prep_accept(self.sqe, fd, addr, len, flags.bits())
     }
 
+    #[inline]
+    pub unsafe fn prep_close(&mut self, fd: RawFd) {
+        uring_sys::io_uring_prep_close(self.sqe, fd);
+    }
+
     /// Prepare a no-op event.
     /// ```
     /// # use iou::{IoUring, SubmissionFlags};
