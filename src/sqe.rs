@@ -190,7 +190,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         &mut self,
         fd: RawFd,
         buf: &mut [u8],
-        offset: usize,
+        offset: u64,
         buf_index: usize,
     ) {
         let len = buf.len();
@@ -220,7 +220,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         &mut self,
         fd: RawFd,
         buf: &[u8],
-        offset: usize,
+        offset: u64,
         buf_index: usize,
     ) {
         let len = buf.len();
