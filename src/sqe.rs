@@ -1,5 +1,6 @@
 use std::io;
 use std::mem;
+use std::ffi::CStr;
 use std::os::unix::io::RawFd;
 use std::ptr::{self, NonNull};
 use std::marker::PhantomData;
@@ -174,6 +175,36 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
+    pub unsafe fn prep_statx(
+        &mut self,
+        dirfd: RawFd,
+        path: &CStr,
+        flags: StatxFlags,
+        mask: StatxMode,
+        buf: &mut libc::statx,
+    ) {
+        uring_sys::io_uring_prep_statx(self.sqe, dirfd, path.as_ptr() as _,
+                                       flags.bits() as _, mask.bits() as _,
+                                       buf as _);
+    }
+
+    #[inline]
+    pub unsafe fn prep_openat(
+        &mut self,
+        fd: RawFd,
+        path: &CStr,
+        flags: libc::c_int,
+        mode: OpenMode,
+    ) {
+        uring_sys::io_uring_prep_openat(self.sqe, fd, path.as_ptr() as _, flags as _, mode.bits());
+    }
+
+    #[inline]
+    pub unsafe fn prep_close(&mut self, fd: RawFd) {
+        uring_sys::io_uring_prep_close(self.sqe, fd);
+    }
+
+    #[inline]
     pub unsafe fn prep_read_vectored(
         &mut self,
         fd: RawFd,
@@ -204,6 +235,22 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     #[inline]
+    pub unsafe fn prep_read(
+        &mut self,
+        fd: RawFd,
+        buf: &mut [u8],
+        offset: u64,
+    ) {
+        let len = buf.len();
+        let addr = buf.as_mut_ptr();
+        uring_sys::io_uring_prep_read(self.sqe,
+                                      fd,
+                                      addr as _,
+                                      len as _,
+                                      offset as _);
+    }
+
+    #[inline]
     pub unsafe fn prep_write_vectored(
         &mut self,
         fd: RawFd,
@@ -213,6 +260,22 @@ impl<'a> SubmissionQueueEvent<'a> {
         let len = bufs.len();
         let addr = bufs.as_ptr();
         uring_sys::io_uring_prep_writev(self.sqe, fd, addr as _, len as _, offset as _);
+    }
+
+    #[inline]
+    pub unsafe fn prep_write(
+        &mut self,
+        fd: RawFd,
+        buf: &[u8],
+        offset: u64,
+    ) {
+        let len = buf.len();
+        let addr = buf.as_ptr();
+        uring_sys::io_uring_prep_write(self.sqe,
+                                      fd,
+                                      addr as _,
+                                      len as _,
+                                      offset as _);
     }
 
     #[inline]
@@ -235,6 +298,16 @@ impl<'a> SubmissionQueueEvent<'a> {
     #[inline]
     pub unsafe fn prep_fsync(&mut self, fd: RawFd, flags: FsyncFlags) {
         uring_sys::io_uring_prep_fsync(self.sqe, fd, flags.bits() as _);
+    }
+
+    #[inline]
+    pub unsafe fn prep_fallocate(&mut self, fd: RawFd,
+                                 offset: u64, size: u64,
+                                 flags: FallocateFlags) {
+        uring_sys::io_uring_prep_fallocate(self.sqe, fd,
+                                        flags.bits() as _,
+                                        offset as _,
+                                        size as _);
     }
 
     /// Prepare a timeout event.
@@ -429,9 +502,69 @@ bitflags::bitflags! {
 }
 
 bitflags::bitflags! {
+    pub struct OpenMode: u32 {
+        const S_IXOTH  = 1 << 0;
+        const S_IWOTH  = 1 << 1;
+        const S_IROTH  = 1 << 2;
+        const S_IXGRP  = 1 << 3;
+        const S_IWGRP  = 1 << 4;
+        const S_IRGRP  = 1 << 5;
+        const S_IXUSR  = 1 << 6;
+        const S_IWUSR  = 1 << 7;
+        const S_IRUSR  = 1 << 8;
+        const S_IRWXO  = Self::S_IROTH.bits | Self::S_IWOTH.bits | Self::S_IXOTH.bits;
+        const S_IRWXG  = Self::S_IRGRP.bits | Self::S_IWGRP.bits | Self::S_IXGRP.bits;
+        const S_IRWXU  = Self::S_IRUSR.bits | Self::S_IWUSR.bits | Self::S_IXUSR.bits;
+        const S_ISVTX  = 1 << 12;
+        const S_ISGID  = 1 << 13;
+        const S_ISUID  = 1 << 14;
+    }
+}
+
+bitflags::bitflags! {
     pub struct FsyncFlags: u32 {
         /// Sync file data without an immediate metadata sync.
         const FSYNC_DATASYNC    = 1 << 0;
+    }
+}
+
+bitflags::bitflags! {
+    pub struct FallocateFlags: i32 {
+        const FALLOC_FL_KEEP_SIZE      = 1 << 0;
+        const FALLOC_FL_PUNCH_HOLE     = 1 << 1;
+        const FALLOC_FL_NO_HIDE_STALE  = 1 << 2;
+        const FALLOC_FL_COLLAPSE_RANGE = 1 << 3;
+        const FALLOC_FL_ZERO_RANGE     = 1 << 4;
+        const FALLOC_FL_INSERT_RANGE   = 1 << 5;
+        const FALLOC_FL_UNSHARE_RANGE  = 1 << 6;
+    }
+}
+
+bitflags::bitflags! {
+    pub struct StatxFlags: i32 {
+        const AT_STATX_SYNC_AS_STAT = 0;
+        const AT_SYMLINK_NOFOLLOW   = 1 << 10;
+        const AT_NO_AUTOMOUNT       = 1 << 11;
+        const AT_EMPTY_PATH         = 1 << 12;
+        const AT_STATX_FORCE_SYNC   = 1 << 13;
+        const AT_STATX_DONT_SYNC    = 1 << 14;
+    }
+}
+
+bitflags::bitflags! {
+    pub struct StatxMode: i32 {
+        const STATX_TYPE        = 1 << 0;
+        const STATX_MODE        = 1 << 1;
+        const STATX_NLINK       = 1 << 2;
+        const STATX_UID         = 1 << 3;
+        const STATX_GID         = 1 << 4;
+        const STATX_ATIME       = 1 << 5;
+        const STATX_MTIME       = 1 << 6;
+        const STATX_CTIME       = 1 << 7;
+        const STATX_INO         = 1 << 8;
+        const STATX_SIZE        = 1 << 9;
+        const STATX_BLOCKS      = 1 << 10;
+        const STATX_BTIME       = 1 << 11;
     }
 }
 
