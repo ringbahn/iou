@@ -122,6 +122,14 @@ impl<'ring> SubmissionQueue<'ring> {
             self.submit()?;
         }
     }
+
+    pub fn ready(&self) -> u32 {
+        unsafe { uring_sys::io_uring_sq_ready(self.ring.as_ptr()) as u32 }
+    }
+
+    pub fn space_left(&self) -> u32 {
+        unsafe { uring_sys::io_uring_sq_space_left(self.ring.as_ptr()) as u32 }
+    }
 }
 
 unsafe impl<'ring> Send for SubmissionQueue<'ring> { }
@@ -146,6 +154,17 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 
     /// Set this event's user data. User data is intended to be used by the application after completion.
+    ///
+    /// # Safety
+    ///
+    /// This function is marked `unsafe`. The library from which you obtained this
+    /// `SubmissionQueueEvent` may impose additional safety invariants which you must adhere to
+    /// when setting the user_data for a submission queue event, which it may rely on when
+    /// processing the corresponding completion queue event. For example, the library
+    /// [ringbahn][ringbahn] 
+    ///
+    /// # Example
+    ///
     /// ```rust
     /// # use iou::IoUring;
     /// # fn main() -> std::io::Result<()> {
@@ -160,7 +179,9 @@ impl<'a> SubmissionQueueEvent<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn set_user_data(&mut self, user_data: u64) {
+    ///
+    /// [ringbahn]: https://crates.io/crates/ringbahn
+    pub unsafe fn set_user_data(&mut self, user_data: u64) {
         self.sqe.user_data = user_data as _;
     }
 

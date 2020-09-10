@@ -55,8 +55,17 @@ impl<'ring> CompletionQueue<'ring> {
         }
     }
 
-    pub fn ready(&mut self) -> u32 {
+    pub fn ready(&self) -> u32 {
         unsafe { uring_sys::io_uring_cq_ready(self.ring.as_ptr()) }
+    }
+
+    pub fn eventfd_enabled(&self) -> bool {
+        unsafe { uring_sys::io_uring_cq_eventfd_enabled(self.ring.as_ptr()) }
+    }
+
+    pub fn eventfd_toggle(&mut self, enabled: bool) -> io::Result<()> {
+        let _: i32 = resultify!(unsafe { uring_sys::io_uring_cq_eventfd_toggle(self.ring.as_ptr(), enabled) })?;
+        Ok(())
     }
 }
 
@@ -67,13 +76,13 @@ unsafe impl<'ring> Sync for CompletionQueue<'ring> { }
 pub struct CompletionQueueEvent {
     user_data: u64,
     res: i32,
-    _flags: u32,
+    flags: u32,
 }
 
 impl CompletionQueueEvent {
     pub fn from_raw(user_data: u64, res: i32, flags: u32) -> CompletionQueueEvent {
         CompletionQueueEvent {
-            user_data, res, _flags: flags,
+            user_data, res, flags,
         }
     }
 
@@ -122,6 +131,10 @@ impl CompletionQueueEvent {
 
     pub fn raw_result(&self) -> i32 {
         self.res
+    }
+
+    pub fn raw_flags(&self) -> u32 {
+        self.flags
     }
 }
 

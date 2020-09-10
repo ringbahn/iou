@@ -285,6 +285,26 @@ impl IoUring {
     pub fn raw_mut(&mut self) -> &mut uring_sys::io_uring {
         &mut self.ring
     }
+
+    pub fn cq_ready(&mut self) -> u32 {
+        self.cq().ready()
+    }
+
+    pub fn sq_ready(&mut self) -> u32 {
+        self.sq().ready()
+    }
+
+    pub fn sq_space_left(&mut self) -> u32 {
+        self.sq().space_left()
+    }
+
+    pub fn cq_eventfd_enabled(&mut self) -> bool {
+        self.cq().eventfd_enabled()
+    }
+
+    pub fn cq_eventfd_toggle(&mut self, enabled: bool) -> io::Result<()> {
+        self.cq().eventfd_toggle(enabled)
+    }
 }
 
 impl Drop for IoUring {
