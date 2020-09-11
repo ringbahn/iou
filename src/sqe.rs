@@ -171,7 +171,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     /// # let mut ring = IoUring::new(2)?;
     /// # let mut sq_event = ring.next_sqe().unwrap();
     /// #
-    /// sq_event.set_user_data(0xB00);
+    /// unsafe { sq_event.set_user_data(0xB00); }
     /// ring.submit_sqes()?;
     ///
     /// let cq_event = ring.wait_for_cqe()?;
@@ -465,7 +465,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     /// # let mut ring = IoUring::new(1)?;
     /// # let mut sqe = ring.next_sqe().unwrap();
     /// #
-    /// sqe.set_user_data(0x1010);
+    /// unsafe { sqe.set_user_data(0x1010); }
     /// sqe.set_flags(SubmissionFlags::IO_DRAIN);
     ///
     /// sqe.clear();

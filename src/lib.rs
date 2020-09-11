@@ -54,6 +54,7 @@ mod registrar;
 
 use std::io;
 use std::mem::MaybeUninit;
+use std::os::unix::io::RawFd;
 use std::ptr::{self, NonNull};
 use std::time::Duration;
 
@@ -312,6 +313,10 @@ impl IoUring {
 
     pub fn cq_eventfd_toggle(&mut self, enabled: bool) -> io::Result<()> {
         self.cq().eventfd_toggle(enabled)
+    }
+
+    pub fn raw_fd(&self) -> RawFd {
+        self.ring.ring_fd
     }
 }
 
