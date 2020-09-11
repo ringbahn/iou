@@ -48,6 +48,8 @@ macro_rules! resultify {
 
 mod cqe;
 mod sqe;
+
+mod probe;
 mod registrar;
 
 use std::io;
@@ -57,6 +59,8 @@ use std::time::Duration;
 
 pub use sqe::{SubmissionQueue, SubmissionQueueEvent, SubmissionFlags, FsyncFlags, FallocateFlags, StatxFlags, StatxMode, OpenMode, SockAddrStorage};
 pub use cqe::{CompletionQueue, CompletionQueueEvent};
+
+pub use probe::Probe;
 pub use registrar::{Registrar, RingFd, RegisteredFd};
 
 pub use nix::poll::PollFlags;
@@ -188,6 +192,10 @@ impl IoUring {
     /// Returns the three constituent parts of the `IoUring`.
     pub fn queues(&mut self) -> (SubmissionQueue<'_>, CompletionQueue<'_>, Registrar<'_>) {
         (SubmissionQueue::new(&*self), CompletionQueue::new(&*self), Registrar::new(&*self))
+    }
+
+    pub fn probe(&mut self) -> io::Result<Probe> {
+        Probe::for_ring(&mut self.ring)
     }
 
     pub fn next_sqe(&mut self) -> Option<SubmissionQueueEvent<'_>> {

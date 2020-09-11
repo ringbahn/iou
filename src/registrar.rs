@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::os::unix::io::RawFd;
 
-use super::IoUring;
+use crate::{IoUring, Probe};
 
 /// A `Registrar` creates ahead-of-time kernel references to files and user buffers.
 ///
@@ -171,6 +171,10 @@ impl<'ring> Registrar<'ring> {
             uring_sys::io_uring_unregister_eventfd(self.ring.as_ptr())
         })?;
         Ok(())
+    }
+
+    pub fn probe(&self) -> io::Result<Probe> {
+        Probe::for_ring(self.ring.as_ptr())
     }
 }
 
