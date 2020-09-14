@@ -55,6 +55,20 @@ impl<'ring> CompletionQueue<'ring> {
         }
     }
 
+    pub fn cqes(&mut self) -> CompletionQueueEvents<'ring, '_> {
+        CompletionQueueEvents {
+            queue: self,
+            ready: 0,
+        }
+    }
+
+    pub fn cqes_blocking(&mut self) -> CompletionQueueEventsBlocking<'ring, '_> {
+        CompletionQueueEventsBlocking {
+            queue: self,
+            ready: 0,
+        }
+    }
+
     pub fn ready(&self) -> u32 {
         unsafe { uring_sys::io_uring_cq_ready(self.ring.as_ptr()) }
     }
@@ -80,7 +94,15 @@ pub struct CompletionQueueEvent {
 }
 
 impl CompletionQueueEvent {
-    pub fn from_raw(user_data: u64, res: i32, flags: u32) -> CompletionQueueEvent {
+    pub fn from_raw(cqe: uring_sys::io_uring_cqe) -> CompletionQueueEvent {
+        CompletionQueueEvent {
+            user_data: cqe.user_data,
+            res: cqe.res,
+            flags: cqe.flags,
+        }
+    }
+
+    pub fn from_raw_parts(user_data: u64, res: i32, flags: u32) -> CompletionQueueEvent {
         CompletionQueueEvent {
             user_data, res, flags,
         }
@@ -95,7 +117,7 @@ impl CompletionQueueEvent {
             uring_sys::io_uring_cqe_seen(ring.as_ptr(), cqe);
         }
 
-        CompletionQueueEvent::from_raw(user_data, res, flags)
+        CompletionQueueEvent::from_raw_parts(user_data, res, flags)
     }
 
     /// Check whether this event is a timeout.
@@ -117,7 +139,7 @@ impl CompletionQueueEvent {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn is_timeout(&self) -> bool {
+    pub fn is_iou_timeout(&self) -> bool {
         self.user_data == uring_sys::LIBURING_UDATA_TIMEOUT
     }
 
@@ -140,3 +162,45 @@ impl CompletionQueueEvent {
 
 unsafe impl Send for CompletionQueueEvent { }
 unsafe impl Sync for CompletionQueueEvent { }
+
+pub struct CompletionQueueEvents<'a, 'b> {
+    queue: &'b mut CompletionQueue<'a>,
+    ready: u32,
+}
+
+impl Iterator for CompletionQueueEvents<'_, '_> {
+    type Item = CompletionQueueEvent;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ready == 0 {
+            self.ready = self.queue.ready();
+            if self.ready == 0 {
+                return None;
+            }
+        }
+
+        self.ready -= 1;
+        self.queue.peek_for_cqe()
+    }
+}
+
+pub struct CompletionQueueEventsBlocking<'a, 'b> {
+    queue: &'b mut CompletionQueue<'a>,
+    ready: u32,
+}
+
+impl Iterator for CompletionQueueEventsBlocking<'_, '_> {
+    type Item = io::Result<CompletionQueueEvent>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ready == 0 {
+            self.ready = self.queue.ready();
+            if self.ready == 0 {
+                return Some(self.queue.wait_for_cqe());
+            }
+        }
+
+        self.ready -= 1;
+        self.queue.peek_for_cqe().map(Ok)
+    }
+}
