@@ -9,7 +9,7 @@ use super::{IoUring, CQE, CQEs, CQEsBlocking, resultify};
 ///
 /// Each element is a [`CQE`](crate::cqe::CQE).
 ///
-/// Completion does not imply success. Completed events may be [timeouts](crate::cqe::CQE::is_timeout).
+/// Completion does not imply success. Completed events may be [timeouts](crate::cqe::CQE::is_iou_timeout).
 pub struct CompletionQueue<'ring> {
     ring: NonNull<uring_sys::io_uring>,
     _marker: PhantomData<&'ring mut IoUring>,
