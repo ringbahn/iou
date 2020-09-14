@@ -2,150 +2,21 @@ use std::io;
 use std::mem;
 use std::ffi::CStr;
 use std::os::unix::io::RawFd;
-use std::ptr::{self, NonNull};
-use std::marker::PhantomData;
-use std::time::Duration;
 
-use super::{IoUring, RingFd};
-use super::{PollFlags, SockAddr, SockFlag, resultify};
-
-/// The queue of pending IO events.
-///
-/// Each element is a [`SubmissionQueueEvent`](crate::sqe::SubmissionQueueEvent).
-/// By default, events are processed in parallel after being submitted.
-/// You can modify this behavior for specific events using event [`SubmissionFlags`](crate::sqe::SubmissionFlags).
-///
-/// # Examples
-/// Consider a read event that depends on a successful write beforehand.
-///
-/// We reify this relationship by using `IO_LINK` to link these events.
-/// ```rust
-/// # use std::error::Error;
-/// # use std::fs::File;
-/// # use std::os::unix::io::{AsRawFd, RawFd};
-/// # use iou::{IoUring, SubmissionFlags};
-/// #
-/// # fn main() -> Result<(), Box<dyn Error>> {
-/// # let mut ring = IoUring::new(2)?;
-/// # let mut sq = ring.sq();
-/// #
-/// let mut write_event = sq.next_sqe().unwrap();
-///
-/// // -- write event prep elided
-///
-/// // set IO_LINK to link the next event to this one
-/// write_event.set_flags(SubmissionFlags::IO_LINK);
-///
-/// let mut read_event = sq.next_sqe().unwrap();
-///
-/// // -- read event prep elided
-///
-/// // read_event only occurs if write_event was successful
-/// sq.submit()?;
-/// # Ok(())
-/// # }
-/// ```
-pub struct SubmissionQueue<'ring> {
-    ring: NonNull<uring_sys::io_uring>,
-    _marker: PhantomData<&'ring mut IoUring>,
-}
-
-impl<'ring> SubmissionQueue<'ring> {
-    pub(crate) fn new(ring: &'ring IoUring) -> SubmissionQueue<'ring> {
-        SubmissionQueue {
-            ring: NonNull::from(&ring.ring),
-            _marker: PhantomData,
-        }
-    }
-
-    /// Returns new [`SubmissionQueueEvent`s](crate::sqe::SubmissionQueueEvent) until the queue size is reached. After that, will return `None`.
-    /// ```rust
-    /// # use iou::IoUring;
-    /// # use std::error::Error;
-    /// # fn main() -> std::io::Result<()> {
-    /// # let ring_size = 2;
-    /// let mut ring = IoUring::new(ring_size)?;
-    ///
-    /// let mut counter = 0;
-    ///
-    /// while let Some(event) = ring.next_sqe() {
-    ///     counter += 1;
-    /// }
-    ///
-    /// assert_eq!(counter, ring_size);
-    /// assert!(ring.next_sqe().is_none());
-    /// # Ok(())
-    /// # }
-    ///
-    pub fn next_sqe<'a>(&'a mut self) -> Option<SubmissionQueueEvent<'a>> {
-        unsafe {
-            let sqe = uring_sys::io_uring_get_sqe(self.ring.as_ptr());
-            if sqe != ptr::null_mut() {
-                let mut sqe = SubmissionQueueEvent::new(&mut *sqe);
-                sqe.clear();
-                Some(sqe)
-            } else {
-                None
-            }
-        }
-    }
-
-    /// Submit all events in the queue. Returns the number of submitted events.
-    ///
-    /// If this function encounters any IO errors an [`io::Error`](std::io::Result) variant is returned.
-    pub fn submit(&mut self) -> io::Result<u32> {
-        resultify(unsafe { uring_sys::io_uring_submit(self.ring.as_ptr()) })
-    }
-
-    pub fn submit_and_wait(&mut self, wait_for: u32) -> io::Result<u32> {
-        resultify(unsafe { uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) })
-    }
-
-    pub fn submit_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
-        -> io::Result<u32>
-    {
-        let ts = uring_sys::__kernel_timespec {
-            tv_sec: duration.as_secs() as _,
-            tv_nsec: duration.subsec_nanos() as _
-        };
-
-        loop {
-            if let Some(mut sqe) = self.next_sqe() {
-                sqe.clear();
-                unsafe {
-                    sqe.prep_timeout(&ts);
-                    sqe.set_user_data(uring_sys::LIBURING_UDATA_TIMEOUT);
-                    return resultify(uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
-                }
-            }
-
-            self.submit()?;
-        }
-    }
-
-    pub fn ready(&self) -> u32 {
-        unsafe { uring_sys::io_uring_sq_ready(self.ring.as_ptr()) as u32 }
-    }
-
-    pub fn space_left(&self) -> u32 {
-        unsafe { uring_sys::io_uring_sq_space_left(self.ring.as_ptr()) as u32 }
-    }
-}
-
-unsafe impl<'ring> Send for SubmissionQueue<'ring> { }
-unsafe impl<'ring> Sync for SubmissionQueue<'ring> { }
+use super::RingFd;
+use super::{PollFlags, SockAddr, SockFlag};
 
 /// A pending IO event.
 ///
 /// Can be configured with a set of [`SubmissionFlags`](crate::sqe::SubmissionFlags).
 ///
-pub struct SubmissionQueueEvent<'a> {
+pub struct SQE<'a> {
     sqe: &'a mut uring_sys::io_uring_sqe,
 }
 
-impl<'a> SubmissionQueueEvent<'a> {
-    pub(crate) fn new(sqe: &'a mut uring_sys::io_uring_sqe) -> SubmissionQueueEvent<'a> {
-        SubmissionQueueEvent { sqe }
+impl<'a> SQE<'a> {
+    pub(crate) fn new(sqe: &'a mut uring_sys::io_uring_sqe) -> SQE<'a> {
+        SQE { sqe }
     }
 
     /// Get this event's user data.
@@ -158,7 +29,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     /// # Safety
     ///
     /// This function is marked `unsafe`. The library from which you obtained this
-    /// `SubmissionQueueEvent` may impose additional safety invariants which you must adhere to
+    /// `SQE` may impose additional safety invariants which you must adhere to
     /// when setting the user_data for a submission queue event, which it may rely on when
     /// processing the corresponding completion queue event. For example, the library
     /// [ringbahn][ringbahn] 
@@ -488,8 +359,8 @@ impl<'a> SubmissionQueueEvent<'a> {
     }
 }
 
-unsafe impl<'a> Send for SubmissionQueueEvent<'a> { }
-unsafe impl<'a> Sync for SubmissionQueueEvent<'a> { }
+unsafe impl<'a> Send for SQE<'a> { }
+unsafe impl<'a> Sync for SQE<'a> { }
 
 pub struct SockAddrStorage {
     storage: mem::MaybeUninit<nix::sys::socket::sockaddr_storage>,
@@ -519,7 +390,7 @@ impl SockAddrStorage {
 }
 
 bitflags::bitflags! {
-    /// [`SubmissionQueueEvent`](SubmissionQueueEvent) configuration flags.
+    /// [`SQE`](SQE) configuration flags.
     pub struct SubmissionFlags: u8 {
         /// This event's file descriptor is an index into the preregistered set of files.
         const FIXED_FILE    = 1 << 0;   /* use fixed fileset */

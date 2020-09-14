@@ -14,9 +14,9 @@
 //!
 //! # Submitting events
 //!
-//! You can prepare new IO events using the `SubmissionQueueEvent` type. Once an event has been
+//! You can prepare new IO events using the `SQE` type. Once an event has been
 //! prepared, the next call to submit will submit that event. Eventually, those events will
-//! complete, and that a `CompletionQueueEvent` will appear on the completion queue indicating that
+//! complete, and that a `CQE` will appear on the completion queue indicating that
 //! the event is complete.
 //!
 //! Preparing IO events is inherently unsafe, as you must guarantee that the buffers and file
@@ -32,10 +32,13 @@
 //! Therefore when you create a timeout, all that happens is that a completion event will appear
 //! after that specified time. This also means that when processing completion events, you need to
 //! be prepared for the possibility that the completion represents a timeout and not a normal IO
-//! event (`CompletionQueueEvent` has a method to check for this).
+//! event (`CQE` has a method to check for this).
 
 mod cqe;
 mod sqe;
+
+mod completion_queue;
+mod submission_queue;
 
 mod probe;
 mod registrar;
@@ -46,8 +49,11 @@ use std::os::unix::io::RawFd;
 use std::ptr::{self, NonNull};
 use std::time::Duration;
 
-pub use sqe::{SubmissionQueue, SubmissionQueueEvent, SubmissionFlags, FsyncFlags, FallocateFlags, StatxFlags, StatxMode, OpenMode, SockAddrStorage};
-pub use cqe::{CompletionQueue, CompletionQueueEvent};
+pub use sqe::{SQE, SubmissionFlags, FsyncFlags, FallocateFlags, StatxFlags, StatxMode, OpenMode, SockAddrStorage};
+pub use cqe::{CQE, CQEs, CQEsBlocking};
+
+pub use completion_queue::CompletionQueue;
+pub use submission_queue::SubmissionQueue;
 
 pub use probe::Probe;
 pub use registrar::{Registrar, RingFd, RegisteredFd};
@@ -189,11 +195,11 @@ impl IoUring {
         Probe::for_ring(&mut self.ring)
     }
 
-    pub fn next_sqe(&mut self) -> Option<SubmissionQueueEvent<'_>> {
+    pub fn next_sqe(&mut self) -> Option<SQE<'_>> {
         unsafe {
             let sqe = uring_sys::io_uring_get_sqe(&mut self.ring);
             if sqe != ptr::null_mut() {
-                let mut sqe = SubmissionQueueEvent::new(&mut *sqe);
+                let mut sqe = SQE::new(&mut *sqe);
                 sqe.clear();
                 Some(sqe)
             } else {
@@ -216,25 +222,25 @@ impl IoUring {
         self.sq().submit_and_wait_with_timeout(wait_for, duration)
     }
 
-    pub fn peek_for_cqe(&mut self) -> Option<CompletionQueueEvent> {
+    pub fn peek_for_cqe(&mut self) -> Option<CQE> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
             let count = uring_sys::io_uring_peek_batch_cqe(&mut self.ring, cqe.as_mut_ptr(), 1);
 
             if count > 0 {
-                Some(CompletionQueueEvent::new(NonNull::from(&self.ring), &mut *cqe.assume_init()))
+                Some(CQE::new(NonNull::from(&self.ring), &mut *cqe.assume_init()))
             } else {
                 None
             }
         }
     }
 
-    pub fn wait_for_cqe(&mut self) -> io::Result<CompletionQueueEvent> {
+    pub fn wait_for_cqe(&mut self) -> io::Result<CQE> {
         self.inner_wait_for_cqes(1, ptr::null())
     }
 
     pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
-        -> io::Result<CompletionQueueEvent>
+        -> io::Result<CQE>
     {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
@@ -244,12 +250,12 @@ impl IoUring {
         self.inner_wait_for_cqes(1, &ts)
     }
 
-    pub fn wait_for_cqes(&mut self, count: u32) -> io::Result<CompletionQueueEvent> {
+    pub fn wait_for_cqes(&mut self, count: u32) -> io::Result<CQE> {
         self.inner_wait_for_cqes(count as _, ptr::null())
     }
 
     pub fn wait_for_cqes_with_timeout(&mut self, count: u32, duration: Duration)
-        -> io::Result<CompletionQueueEvent>
+        -> io::Result<CQE>
     {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
@@ -260,7 +266,7 @@ impl IoUring {
     }
 
     fn inner_wait_for_cqes(&mut self, count: u32, ts: *const uring_sys::__kernel_timespec)
-        -> io::Result<CompletionQueueEvent>
+        -> io::Result<CQE>
     {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
@@ -273,7 +279,7 @@ impl IoUring {
                 ptr::null(),
             ))?;
 
-            Ok(CompletionQueueEvent::new(NonNull::from(&self.ring), &mut *cqe.assume_init()))
+            Ok(CQE::new(NonNull::from(&self.ring), &mut *cqe.assume_init()))
         }
     }
 
