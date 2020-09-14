@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use super::{IoUring, RingFd};
-use super::{PollFlags, SockAddr, SockFlag};
+use super::{PollFlags, SockAddr, SockFlag, resultify};
 
 /// The queue of pending IO events.
 ///
@@ -93,16 +93,16 @@ impl<'ring> SubmissionQueue<'ring> {
     /// Submit all events in the queue. Returns the number of submitted events.
     ///
     /// If this function encounters any IO errors an [`io::Error`](std::io::Result) variant is returned.
-    pub fn submit(&mut self) -> io::Result<usize> {
-        resultify!(unsafe { uring_sys::io_uring_submit(self.ring.as_ptr()) })
+    pub fn submit(&mut self) -> io::Result<u32> {
+        resultify(unsafe { uring_sys::io_uring_submit(self.ring.as_ptr()) })
     }
 
-    pub fn submit_and_wait(&mut self, wait_for: u32) -> io::Result<usize> {
-        resultify!(unsafe { uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) })
+    pub fn submit_and_wait(&mut self, wait_for: u32) -> io::Result<u32> {
+        resultify(unsafe { uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) })
     }
 
     pub fn submit_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
-        -> io::Result<usize>
+        -> io::Result<u32>
     {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
@@ -115,7 +115,7 @@ impl<'ring> SubmissionQueue<'ring> {
                 unsafe {
                     sqe.prep_timeout(&ts);
                     sqe.set_user_data(uring_sys::LIBURING_UDATA_TIMEOUT);
-                    return resultify!(uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
+                    return resultify(uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
                 }
             }
 
@@ -201,25 +201,11 @@ impl<'a> SubmissionQueueEvent<'a> {
         self.set_flags(self.flags() | SubmissionFlags::FIXED_FILE);
     }
 
-    #[inline]
-    pub unsafe fn prep_statx(
-        &mut self,
-        dirfd: RawFd,
-        path: &CStr,
-        flags: StatxFlags,
-        mask: StatxMode,
-        buf: &mut libc::statx,
-    ) {
-        uring_sys::io_uring_prep_statx(self.sqe, dirfd, path.as_ptr() as _,
-                                       flags.bits() as _, mask.bits() as _,
-                                       buf as _);
-    }
-
     pub unsafe fn prep_read(
         &mut self,
         fd: RawFd,
         buf: &mut [u8],
-        offset: usize,
+        offset: u64,
     ) {
         let len = buf.len();
         let addr = buf.as_mut_ptr();
@@ -231,7 +217,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         &mut self,
         fd: impl Into<RingFd>,
         bufs: &mut [io::IoSliceMut<'_>],
-        offset: usize,
+        offset: u64,
     ) {
         let fd = fd.into();
         let len = bufs.len();
@@ -246,7 +232,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         fd: impl Into<RingFd>,
         buf: &mut [u8],
         offset: u64,
-        buf_index: usize,
+        buf_index: u32,
     ) {
         let fd = fd.into();
         let len = buf.len();
@@ -265,7 +251,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         &mut self,
         fd: RawFd,
         buf: &[u8],
-        offset: usize,
+        offset: u64,
     ) {
         let len = buf.len();
         let addr = buf.as_ptr();
@@ -277,7 +263,7 @@ impl<'a> SubmissionQueueEvent<'a> {
         &mut self,
         fd: impl Into<RingFd>,
         bufs: &[io::IoSlice<'_>],
-        offset: usize,
+        offset: u64,
     ) {
         let fd = fd.into();
         let len = bufs.len();
@@ -386,7 +372,7 @@ impl<'a> SubmissionQueueEvent<'a> {
     pub unsafe fn prep_timeout_with_flags(
         &mut self,
         ts: &uring_sys::__kernel_timespec,
-        count: usize,
+        count: u32,
         flags: TimeoutFlags,
     ) {
         uring_sys::io_uring_prep_timeout(self.sqe,
@@ -428,11 +414,6 @@ impl<'a> SubmissionQueueEvent<'a> {
             None => (std::ptr::null_mut(), std::ptr::null_mut())
         };
         uring_sys::io_uring_prep_accept(self.sqe, fd, addr, len, flags.bits())
-    }
-
-    #[inline]
-    pub unsafe fn prep_close(&mut self, fd: RawFd) {
-        uring_sys::io_uring_prep_close(self.sqe, fd);
     }
 
     /// Prepare a no-op event.

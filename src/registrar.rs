@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::os::unix::io::RawFd;
 
-use crate::{IoUring, Probe};
+use crate::{IoUring, Probe, resultify};
 
 /// A `Registrar` creates ahead-of-time kernel references to files and user buffers.
 ///
@@ -46,7 +46,7 @@ impl<'ring> Registrar<'ring> {
     pub fn register_buffers(&self, buffers: &[io::IoSlice<'_>]) -> io::Result<()> {
         let len = buffers.len();
         let addr = buffers.as_ptr() as *const _;
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_register_buffers(self.ring.as_ptr(), addr, len as _)
         })?;
         Ok(())
@@ -55,7 +55,7 @@ impl<'ring> Registrar<'ring> {
     /// Unregister all currently registered buffers. An explicit call to this method is often unecessary,
     /// because all buffers will be unregistered automatically when the ring is dropped.
     pub fn unregister_buffers(&self) -> io::Result<()> {
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_unregister_buffers(self.ring.as_ptr())
         })?;
         Ok(())
@@ -85,7 +85,7 @@ impl<'ring> Registrar<'ring> {
     /// # }
     /// ```
     pub fn register_files<'a>(&mut self, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_register_files(
                 self.ring.as_ptr(), 
                 files.as_ptr() as *const _, 
@@ -111,7 +111,7 @@ impl<'ring> Registrar<'ring> {
     /// * the inner [`io_uring_register_files_update`](uring_sys::io_uring_register_files_update) call
     ///   failed for another reason
     pub fn update_registered_files<'a>(&mut self, offset: usize, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_register_files_update(
                 self.ring.as_ptr(),
                 offset as _,
@@ -154,20 +154,19 @@ impl<'ring> Registrar<'ring> {
     /// # }
     /// ```
     pub fn unregister_files(&mut self) -> io::Result<()> {
-        let _: i32 =
-            resultify!(unsafe { uring_sys::io_uring_unregister_files(self.ring.as_ptr()) })?;
+        resultify(unsafe { uring_sys::io_uring_unregister_files(self.ring.as_ptr()) })?;
         Ok(())
     }
 
     pub fn register_eventfd(&self, eventfd: RawFd) -> io::Result<()> {
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_register_eventfd(self.ring.as_ptr(), eventfd)
         })?;
         Ok(())
     }
 
     pub fn unregister_eventfd(&self) -> io::Result<()> {
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_unregister_eventfd(self.ring.as_ptr())
         })?;
         Ok(())

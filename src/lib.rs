@@ -34,18 +34,6 @@
 //! be prepared for the possibility that the completion represents a timeout and not a normal IO
 //! event (`CompletionQueueEvent` has a method to check for this).
 
-macro_rules! resultify {
-    ($ret:expr) => {
-        {
-            let ret = $ret;
-            match ret >= 0 {
-                true    => Ok(ret as _),
-                false   => Err(std::io::Error::from_raw_os_error(-ret)),
-            }
-        }
-    }
-}
-
 mod cqe;
 mod sqe;
 
@@ -168,9 +156,11 @@ impl IoUring {
     pub fn new_with_flags(entries: u32, flags: SetupFlags) -> io::Result<IoUring> {
         unsafe {
             let mut ring = MaybeUninit::uninit();
-            let _: i32 = resultify! {
-                uring_sys::io_uring_queue_init(entries as _, ring.as_mut_ptr(), flags.bits() as _)
-            }?;
+            resultify(uring_sys::io_uring_queue_init(
+                    entries as _,
+                    ring.as_mut_ptr(),
+                    flags.bits() as _,
+            ))?;
             Ok(IoUring { ring: ring.assume_init() })
         }
     }
@@ -212,16 +202,16 @@ impl IoUring {
         }
     }
 
-    pub fn submit_sqes(&mut self) -> io::Result<usize> {
+    pub fn submit_sqes(&mut self) -> io::Result<u32> {
         self.sq().submit()
     }
 
-    pub fn submit_sqes_and_wait(&mut self, wait_for: u32) -> io::Result<usize> {
+    pub fn submit_sqes_and_wait(&mut self, wait_for: u32) -> io::Result<u32> {
         self.sq().submit_and_wait(wait_for)
     }
 
     pub fn submit_sqes_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
-        -> io::Result<usize>
+        -> io::Result<u32>
     {
         self.sq().submit_and_wait_with_timeout(wait_for, duration)
     }
@@ -254,11 +244,11 @@ impl IoUring {
         self.inner_wait_for_cqes(1, &ts)
     }
 
-    pub fn wait_for_cqes(&mut self, count: usize) -> io::Result<CompletionQueueEvent> {
+    pub fn wait_for_cqes(&mut self, count: u32) -> io::Result<CompletionQueueEvent> {
         self.inner_wait_for_cqes(count as _, ptr::null())
     }
 
-    pub fn wait_for_cqes_with_timeout(&mut self, count: usize, duration: Duration)
+    pub fn wait_for_cqes_with_timeout(&mut self, count: u32, duration: Duration)
         -> io::Result<CompletionQueueEvent>
     {
         let ts = uring_sys::__kernel_timespec {
@@ -275,7 +265,7 @@ impl IoUring {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
-            let _: i32 = resultify!(uring_sys::io_uring_wait_cqes(
+            resultify(uring_sys::io_uring_wait_cqes(
                 &mut self.ring,
                 cqe.as_mut_ptr(),
                 count,
@@ -329,9 +319,17 @@ impl Drop for IoUring {
 unsafe impl Send for IoUring { }
 unsafe impl Sync for IoUring { }
 
-// This has to live in an inline module to test the non-exported resultify macro.
+fn resultify(x: i32) -> io::Result<u32> {
+    match x >= 0 {
+        true    => Ok(x as u32),
+        false   => Err(io::Error::from_raw_os_error(-x)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::resultify;
+
     #[test]
     fn test_resultify() {
         let side_effect = |i, effect: &mut _| -> i32 {
@@ -340,17 +338,17 @@ mod tests {
         };
 
         let mut calls = 0;
-        let ret: Result<i32, _> = resultify!(side_effect(0, &mut calls));
+        let ret = resultify(side_effect(0, &mut calls));
         assert!(match ret { Ok(0) => true, _ => false });
         assert_eq!(calls, 1);
 
         calls = 0;
-        let ret: Result<i32, _> = resultify!(side_effect(1, &mut calls));
+        let ret = resultify(side_effect(1, &mut calls));
         assert!(match ret { Ok(1) => true, _ => false });
         assert_eq!(calls, 1);
 
         calls = 0;
-        let ret: Result<i32, _> = resultify!(side_effect(-1, &mut calls));
+        let ret = resultify(side_effect(-1, &mut calls));
         assert!(match ret { Err(e) if e.raw_os_error() == Some(1) => true, _ => false });
         assert_eq!(calls, 1);
     }
