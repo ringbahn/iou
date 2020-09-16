@@ -7,7 +7,7 @@ fn noop_test() -> io::Result<()> {
 
     // confirm that submit and enter work
     unsafe {
-        let mut sqe = io_uring.next_sqe().unwrap();
+        let mut sqe = io_uring.prepare_sqe().unwrap();
         sqe.prep_nop();
         sqe.set_user_data(0xDEADBEEF);
     }

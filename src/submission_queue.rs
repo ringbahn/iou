@@ -1,9 +1,11 @@
 use std::io;
 use std::ptr::{self, NonNull};
 use std::marker::PhantomData;
+use std::slice;
 use std::time::Duration;
+use std::sync::atomic::{self, Ordering};
 
-use super::{IoUring, SQE, resultify};
+use super::{IoUring, SQE, SQEs, resultify};
 
 /// The queue of pending IO events.
 ///
@@ -25,14 +27,14 @@ use super::{IoUring, SQE, resultify};
 /// # let mut ring = IoUring::new(2)?;
 /// # let mut sq = ring.sq();
 /// #
-/// let mut write_event = sq.next_sqe().unwrap();
+/// let mut write_event = sq.prepare_sqe().unwrap();
 ///
 /// // -- write event prep elided
 ///
 /// // set IO_LINK to link the next event to this one
 /// write_event.set_flags(SubmissionFlags::IO_LINK);
 ///
-/// let mut read_event = sq.next_sqe().unwrap();
+/// let mut read_event = sq.prepare_sqe().unwrap();
 ///
 /// // -- read event prep elided
 ///
@@ -64,25 +66,25 @@ impl<'ring> SubmissionQueue<'ring> {
     ///
     /// let mut counter = 0;
     ///
-    /// while let Some(event) = ring.next_sqe() {
+    /// while let Some(event) = ring.prepare_sqe() {
     ///     counter += 1;
     /// }
     ///
     /// assert_eq!(counter, ring_size);
-    /// assert!(ring.next_sqe().is_none());
+    /// assert!(ring.prepare_sqe().is_none());
     /// # Ok(())
     /// # }
     ///
-    pub fn next_sqe<'a>(&'a mut self) -> Option<SQE<'a>> {
+    pub fn prepare_sqe<'a>(&'a mut self) -> Option<SQE<'a>> {
         unsafe {
-            let sqe = uring_sys::io_uring_get_sqe(self.ring.as_ptr());
-            if sqe != ptr::null_mut() {
-                let mut sqe = SQE::new(&mut *sqe);
-                sqe.clear();
-                Some(sqe)
-            } else {
-                None
-            }
+            prepare_sqe(self.ring.as_mut())
+        }
+    }
+
+    pub fn prepare_sqes<'a>(&'a mut self, count: u32) -> Option<SQEs<'a>> {
+        unsafe {
+            let sq: &mut uring_sys::io_uring_sq = &mut (*self.ring.as_ptr()).sq;
+            prepare_sqes(sq, count)
         }
     }
 
@@ -106,7 +108,7 @@ impl<'ring> SubmissionQueue<'ring> {
         };
 
         loop {
-            if let Some(mut sqe) = self.next_sqe() {
+            if let Some(mut sqe) = self.prepare_sqe() {
                 sqe.clear();
                 unsafe {
                     sqe.prep_timeout(&ts);
@@ -131,3 +133,30 @@ impl<'ring> SubmissionQueue<'ring> {
 unsafe impl<'ring> Send for SubmissionQueue<'ring> { }
 unsafe impl<'ring> Sync for SubmissionQueue<'ring> { }
 
+pub(crate) unsafe fn prepare_sqe<'a>(ring: &mut uring_sys::io_uring) -> Option<SQE<'a>> {
+    let sqe = uring_sys::io_uring_get_sqe(ring);
+    if sqe != ptr::null_mut() {
+        let mut sqe = SQE::new(&mut *sqe);
+        sqe.clear();
+        Some(sqe)
+    } else {
+        None
+    }
+}
+
+pub(crate) unsafe fn prepare_sqes<'a>(sq: &mut uring_sys::io_uring_sq, count: u32)
+    -> Option<SQEs<'a>>
+{
+    atomic::fence(Ordering::Acquire);
+
+    let head: u32 = *sq.khead;
+    let next: u32 = sq.sqe_tail + count;
+
+    if next - head <= *sq.kring_entries {
+        let sqe = sq.sqes.offset((sq.sqe_tail & *sq.kring_mask) as isize);
+        sq.sqe_tail = next;
+        Some(SQEs::new(slice::from_raw_parts_mut(sqe, count as usize)))
+    } else {
+        None
+    }
+}

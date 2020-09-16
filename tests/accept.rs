@@ -21,7 +21,7 @@ fn accept() -> io::Result<()> {
 
     let fd = listener.as_raw_fd();
     let mut sq = ring.sq();
-    let mut sqe = sq.next_sqe().expect("failed to get sqe");
+    let mut sqe = sq.prepare_sqe().expect("failed to get sqe");
     unsafe {
         sqe.prep_accept(fd, None, iou::SockFlag::empty());
         sq.submit()?;
@@ -48,7 +48,7 @@ fn accept_with_params() -> io::Result<()> {
 
     let fd = listener.as_raw_fd();
     let mut sq = ring.sq();
-    let mut sqe = sq.next_sqe().expect("failed to get sqe");
+    let mut sqe = sq.prepare_sqe().expect("failed to get sqe");
     let mut accept_params = iou::SockAddrStorage::uninit();
     unsafe {
         sqe.prep_accept(fd, Some(&mut accept_params), iou::SockFlag::empty());

@@ -49,7 +49,7 @@ use std::os::unix::io::RawFd;
 use std::ptr::{self, NonNull};
 use std::time::Duration;
 
-pub use sqe::{SQE, SubmissionFlags, FsyncFlags, FallocateFlags, StatxFlags, StatxMode, OpenMode, SockAddrStorage};
+pub use sqe::{SQE, SQEs, HardLinked, HardLinkedSQE, SubmissionFlags, FsyncFlags, FallocateFlags, StatxFlags, StatxMode, OpenMode, SockAddrStorage};
 pub use cqe::{CQE, CQEs, CQEsBlocking};
 
 pub use completion_queue::CompletionQueue;
@@ -195,16 +195,15 @@ impl IoUring {
         Probe::for_ring(&mut self.ring)
     }
 
-    pub fn next_sqe(&mut self) -> Option<SQE<'_>> {
+    pub fn prepare_sqe(&mut self) -> Option<SQE<'_>> {
         unsafe {
-            let sqe = uring_sys::io_uring_get_sqe(&mut self.ring);
-            if sqe != ptr::null_mut() {
-                let mut sqe = SQE::new(&mut *sqe);
-                sqe.clear();
-                Some(sqe)
-            } else {
-                None
-            }
+            submission_queue::prepare_sqe(&mut self.ring)
+        }
+    }
+
+    pub fn prepare_sqes(&mut self, count: u32) -> Option<SQEs<'_>> {
+        unsafe {
+            submission_queue::prepare_sqes(&mut self.ring.sq, count)
         }
     }
 

@@ -2,6 +2,7 @@ use std::io;
 use std::mem;
 use std::ffi::CStr;
 use std::os::unix::io::RawFd;
+use std::slice;
 
 use super::RingFd;
 use super::{PollFlags, SockAddr, SockFlag};
@@ -40,7 +41,7 @@ impl<'a> SQE<'a> {
     /// # use iou::IoUring;
     /// # fn main() -> std::io::Result<()> {
     /// # let mut ring = IoUring::new(2)?;
-    /// # let mut sq_event = ring.next_sqe().unwrap();
+    /// # let mut sq_event = ring.prepare_sqe().unwrap();
     /// #
     /// unsafe { sq_event.set_user_data(0xB00); }
     /// ring.submit_sqes()?;
@@ -61,8 +62,8 @@ impl<'a> SQE<'a> {
         unsafe { SubmissionFlags::from_bits_unchecked(self.sqe.flags as _) }
     }
 
-    /// Set this event's flags.
-    pub fn set_flags(&mut self, flags: SubmissionFlags) {
+    /// Overwrite this event's flags.
+    pub fn overwrite_flags(&mut self, flags: SubmissionFlags) {
         self.sqe.flags = flags.bits() as _;
     }
 
@@ -72,6 +73,12 @@ impl<'a> SQE<'a> {
         self.set_flags(self.flags() | SubmissionFlags::FIXED_FILE);
     }
 
+    /// Set these flags for this event (any flags already set will still be set).
+    pub fn set_flags(&mut self, flags: SubmissionFlags) {
+        self.sqe.flags &= flags.bits();
+    }
+
+    #[inline]
     pub unsafe fn prep_read(
         &mut self,
         fd: RawFd,
@@ -220,7 +227,7 @@ impl<'a> SQE<'a> {
     /// # use iou::IoUring;
     /// # fn main() -> std::io::Result<()> {
     /// # let mut ring = IoUring::new(1)?;
-    /// # let mut sqe = ring.next_sqe().unwrap();
+    /// # let mut sqe = ring.prepare_sqe().unwrap();
     /// #
     /// // make a one-second timeout
     /// let timeout_spec: _ = uring_sys::__kernel_timespec {
@@ -295,7 +302,7 @@ impl<'a> SQE<'a> {
     /// #
     /// // example: use a no-op to force a drain
     ///
-    /// let mut nop = ring.next_sqe().unwrap();
+    /// let mut nop = ring.prepare_sqe().unwrap();
     ///
     /// nop.set_flags(SubmissionFlags::IO_DRAIN);
     /// unsafe { nop.prep_nop(); }
@@ -315,7 +322,7 @@ impl<'a> SQE<'a> {
     /// #
     /// # fn main() -> std::io::Result<()> {
     /// # let mut ring = IoUring::new(1)?;
-    /// # let mut sqe = ring.next_sqe().unwrap();
+    /// # let mut sqe = ring.prepare_sqe().unwrap();
     /// #
     /// unsafe { sqe.set_user_data(0x1010); }
     /// sqe.set_flags(SubmissionFlags::IO_DRAIN);
@@ -339,7 +346,7 @@ impl<'a> SQE<'a> {
     /// #
     /// # fn main() -> std::io::Result<()> {
     /// # let mut ring = IoUring::new(1)?;
-    /// # let mut sqe = ring.next_sqe().unwrap();
+    /// # let mut sqe = ring.prepare_sqe().unwrap();
     /// #
     /// unsafe { sqe.prep_nop(); }
     ///
@@ -401,6 +408,10 @@ bitflags::bitflags! {
         /// An event's link only applies to the next event, but link chains can be
         /// arbitrarily long.
         const IO_LINK       = 1 << 2;   /* next IO depends on this one */
+
+        const IO_HARDLINK   = 1 << 3;
+        const ASYNC         = 1 << 4;
+        const BUFFER_SELECT = 1 << 5;
     }
 }
 
@@ -474,5 +485,70 @@ bitflags::bitflags! {
 bitflags::bitflags! {
     pub struct TimeoutFlags: u32 {
         const TIMEOUT_ABS   = 1 << 0;
+    }
+}
+
+pub struct SQEs<'ring> {
+    sqes: slice::IterMut<'ring, uring_sys::io_uring_sqe>,
+}
+
+impl<'ring> SQEs<'ring> {
+    pub(crate) fn new(slice: &'ring mut [uring_sys::io_uring_sqe]) -> SQEs<'ring> {
+        SQEs {
+            sqes: slice.iter_mut(),
+        }
+    }
+
+    pub fn single(&mut self) -> Option<SQE<'ring>> {
+        let mut next = None;
+        while let Some(sqe) = self.consume() { next = Some(sqe) }
+        next
+    }
+
+    pub fn hard_linked(&mut self) -> HardLinked<'ring, '_> {
+        HardLinked { sqes: self }
+    }
+
+    pub fn remaining(&self) -> u32 {
+        self.sqes.len() as u32
+    }
+
+    fn consume(&mut self) -> Option<SQE<'ring>> {
+        self.sqes.next().map(|sqe| {
+            unsafe { uring_sys::io_uring_prep_nop(sqe) }
+            SQE { sqe }
+        })
+    }
+}
+
+pub struct HardLinked<'ring, 'a> {
+    sqes: &'a mut SQEs<'ring>,
+}
+
+impl<'ring> HardLinked<'ring, '_> {
+    pub fn terminate(self) -> Option<SQE<'ring>> {
+        self.sqes.consume()
+    }
+}
+
+impl<'ring> Iterator for HardLinked<'ring, '_> {
+    type Item = HardLinkedSQE<'ring>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let is_final = self.sqes.remaining() == 1;
+        self.sqes.consume().map(|sqe| HardLinkedSQE { sqe, is_final })
+    }
+}
+
+pub struct HardLinkedSQE<'ring> {
+    sqe: SQE<'ring>,
+    is_final: bool,
+}
+
+impl<'ring> Drop for HardLinkedSQE<'ring> {
+    fn drop(&mut self) {
+        if !self.is_final {
+            self.sqe.set_flags(SubmissionFlags::IO_HARDLINK);
+        }
     }
 }
