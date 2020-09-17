@@ -35,7 +35,7 @@
 //! event (`CQE` has a method to check for this).
 
 mod cqe;
-mod sqe;
+pub mod sqe;
 
 mod completion_queue;
 mod submission_queue;
@@ -44,31 +44,20 @@ mod probe;
 mod registrar;
 
 use std::io;
-use std::mem::MaybeUninit;
+use std::mem::{self, MaybeUninit};
 use std::os::unix::io::RawFd;
 use std::ptr::{self, NonNull};
 use std::time::Duration;
 
-pub use sqe::{SQE, SQEs, HardLinked, HardLinkedSQE, SubmissionFlags, FsyncFlags, FallocateFlags, StatxFlags, StatxMode, OpenMode, SockAddrStorage};
+#[doc(inline)]
+pub use sqe::{SQE, SQEs, HardLinked, HardLinkedSQE};
 pub use cqe::{CQE, CQEs, CQEsBlocking};
 
 pub use completion_queue::CompletionQueue;
 pub use submission_queue::SubmissionQueue;
 
 pub use probe::Probe;
-pub use registrar::{Registrar, RingFd, RegisteredFd};
-
-pub use nix::poll::PollFlags;
-pub use nix::sys::socket::{
-    SockAddr,
-    SockFlag,
-    InetAddr,
-    UnixAddr,
-    NetlinkAddr,
-    AlgAddr,
-    LinkAddr,
-    VsockAddr
-};
+pub use registrar::{Registrar, RingFd, RegisteredFd, Personality};
 
 bitflags::bitflags! {
     /// `IoUring` initialization flags for advanced use cases.
@@ -100,6 +89,22 @@ bitflags::bitflags! {
         /// Force the kernel thread created with `SQPOLL` to be bound to the CPU used by the
         /// `SubmissionQueue`. Requires `SQPOLL` set.
         const SQ_AFF    = 1 << 2;   /* sq_thread_cpu is valid */
+
+        const CQSIZE    = 1 << 3;
+        const CLAMP     = 1 << 4;
+        const ATTACH_WQ = 1 << 5;
+    }
+}
+
+bitflags::bitflags! {
+    pub struct SetupFeatures: u32 {
+        const SINGLE_MMAP       = 1 << 0;
+        const NODROP            = 1 << 1;
+        const SUBMIT_STABLE     = 1 << 2;
+        const RW_CUR_POS        = 1 << 3;
+        const CUR_PERSONALITY   = 1 << 4;
+        const FAST_POLL         = 1 << 5;
+        const POLL_32BITS       = 1 << 6;
     }
 }
 
@@ -155,17 +160,21 @@ impl IoUring {
     /// The underlying `SubmissionQueue` and `CompletionQueue` will each have this number of
     /// entries.
     pub fn new(entries: u32) -> io::Result<IoUring> {
-        IoUring::new_with_flags(entries, SetupFlags::empty())
+        IoUring::new_with_flags(entries, SetupFlags::empty(), SetupFeatures::empty())
     }
 
-    /// Creates a new `IoUring` using a set of `SetupFlags` for advanced use cases.
-    pub fn new_with_flags(entries: u32, flags: SetupFlags) -> io::Result<IoUring> {
+    /// Creates a new `IoUring` using a set of `SetupFlags` and `SetupFeatures` for advanced
+    /// use cases.
+    pub fn new_with_flags(entries: u32, flags: SetupFlags, features: SetupFeatures) -> io::Result<IoUring> {
         unsafe {
+            let mut params: uring_sys::io_uring_params = mem::zeroed();
+            params.flags = flags.bits();
+            params.features = features.bits();
             let mut ring = MaybeUninit::uninit();
-            resultify(uring_sys::io_uring_queue_init(
+            resultify(uring_sys::io_uring_queue_init_params(
                     entries as _,
                     ring.as_mut_ptr(),
-                    flags.bits() as _,
+                    &mut params,
             ))?;
             Ok(IoUring { ring: ring.assume_init() })
         }

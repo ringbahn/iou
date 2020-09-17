@@ -11,8 +11,8 @@ edition = "2018"
 
 [dependencies]
 bitflags = "1.2.0"
-nix = "0.16.0"
-uring-sys = "0.7.2"
+nix = "0.18.0"
+uring-sys = "0.7.4"
 libc = "0.2.77"
 
 [dev-dependencies]

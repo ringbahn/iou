@@ -165,9 +165,29 @@ impl<'ring> Registrar<'ring> {
         Ok(())
     }
 
+    pub fn register_eventfd_async(&self, eventfd: RawFd) -> io::Result<()> {
+        resultify(unsafe {
+            uring_sys::io_uring_register_eventfd_async(self.ring.as_ptr(), eventfd)
+        })?;
+        Ok(())
+    }
+
     pub fn unregister_eventfd(&self) -> io::Result<()> {
         resultify(unsafe {
             uring_sys::io_uring_unregister_eventfd(self.ring.as_ptr())
+        })?;
+        Ok(())
+    }
+
+    pub fn register_personality(&self) -> io::Result<Personality> {
+        let id = resultify(unsafe { uring_sys::io_uring_register_personality(self.ring.as_ptr()) })?;
+        debug_assert!(id < u16::MAX as u32);
+        Ok(Personality { id: id as u16 })
+    }
+
+    pub fn unregister_personality(&self, personality: Personality) -> io::Result<()> {
+        resultify(unsafe {
+            uring_sys::io_uring_unregister_personality(self.ring.as_ptr(), personality.id as _)
         })?;
         Ok(())
     }
@@ -356,5 +376,16 @@ mod tests {
         let file = std::fs::File::create("tmp.txt").unwrap();
         let _ = ring.registrar().update_registered_files(0, &[file.as_raw_fd()]).unwrap();
         let _ = std::fs::remove_file("tmp.txt");
+    }
+}
+
+#[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
+pub struct Personality {
+    pub(crate) id: u16,
+}
+
+impl From<u16> for Personality {
+    fn from(id: u16) -> Personality {
+        Personality { id }
     }
 }
