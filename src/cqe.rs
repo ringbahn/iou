@@ -7,7 +7,7 @@ use super::{CompletionQueue, resultify};
 pub struct CQE {
     user_data: u64,
     res: i32,
-    flags: u32,
+    flags: CompletionFlags,
 }
 
 impl CQE {
@@ -15,11 +15,11 @@ impl CQE {
         CQE {
             user_data: cqe.user_data,
             res: cqe.res,
-            flags: cqe.flags,
+            flags: CompletionFlags::from_bits_truncate(cqe.flags),
         }
     }
 
-    pub fn from_raw_parts(user_data: u64, res: i32, flags: u32) -> CQE {
+    pub fn from_raw_parts(user_data: u64, res: i32, flags: CompletionFlags) -> CQE {
         CQE {
             user_data, res, flags,
         }
@@ -28,7 +28,7 @@ impl CQE {
     pub(crate) fn new(ring: NonNull<uring_sys::io_uring>, cqe: &mut uring_sys::io_uring_cqe) -> CQE {
         let user_data = cqe.user_data;
         let res = cqe.res;
-        let flags = cqe.flags;
+        let flags = CompletionFlags::from_bits_truncate(cqe.flags);
 
         unsafe {
             uring_sys::io_uring_cqe_seen(ring.as_ptr(), cqe);
@@ -68,12 +68,16 @@ impl CQE {
         resultify(self.res)
     }
 
+    pub fn flags(&self) -> CompletionFlags {
+        self.flags
+    }
+
     pub fn raw_result(&self) -> i32 {
         self.res
     }
 
     pub fn raw_flags(&self) -> u32 {
-        self.flags
+        self.flags.bits()
     }
 }
 
@@ -119,5 +123,11 @@ impl Iterator for CQEsBlocking<'_, '_> {
 
         self.ready -= 1;
         self.queue.peek_for_cqe().map(Ok)
+    }
+}
+
+bitflags::bitflags! {
+    pub struct CompletionFlags: u32 {
+        const BUFFER_SHIFT    = 1 << 0;
     }
 }

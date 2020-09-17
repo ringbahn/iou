@@ -50,8 +50,8 @@ use std::ptr::{self, NonNull};
 use std::time::Duration;
 
 #[doc(inline)]
-pub use sqe::{SQE, SQEs, HardLinked, HardLinkedSQE};
-pub use cqe::{CQE, CQEs, CQEsBlocking};
+pub use sqe::{SQE, SQEs, HardLinked, HardLinkedSQE, SubmissionFlags};
+pub use cqe::{CQE, CQEs, CQEsBlocking, CompletionFlags};
 
 pub use completion_queue::CompletionQueue;
 pub use submission_queue::SubmissionQueue;
