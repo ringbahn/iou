@@ -1,43 +1,29 @@
-use iou::{IoUring, RegisteredFd, SubmissionFlags};
-use std::fs::{self, File};
+use iou::{IoUring, RegisteredFd};
+use std::fs::File;
 use std::io::{IoSlice, Read};
 use std::os::unix::io::AsRawFd;
-use std::path::PathBuf;
-use std::time::Duration;
 
 const TEXT: &[u8] = b"hello there\n";
 
 #[test]
-#[ignore] // fails if sparse filesets aren't supported
 fn main() -> std::io::Result<()> {
     let mut ring = IoUring::new(2)?;
     let mut registrar = ring.registrar();
 
-    let reserve_files = [RegisteredFd::placeholder().as_fd(), 4096];
-    registrar.register_files(&reserve_files)?;
-    assert!(registrar.fileset().iter().all(|fd| fd.is_placeholder()));
-
-    println!("makes it here");
+    let reserve_files = [RegisteredFd::placeholder().as_fd(); 1024];
+    let fileset: Vec<RegisteredFd> = registrar.register_files(&reserve_files)?.collect();
+    assert!(fileset.iter().all(|fd| fd.is_placeholder()));
 
     let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("props");
     path.push("tmp-fileset-placeholder.txt");
 
+    // update a random fileset entry with a valid file
     let file = std::fs::File::create(&path)?;
-    let fd_slice = &[file.as_raw_fd()];
-
-    // update a random fileset entry
-    let offset = 713;
-
-    let reg_file = registrar.fileset()[offset];
-
-    registrar.update_registered_files(offset, fd_slice)?;
-    assert!(!registrar.fileset()[offset].is_placeholder());
-
-    let reg_file = registrar.fileset()[offset];
+    let reg_file = registrar.update_registered_files(713, &[file.as_raw_fd()])?.collect::<Vec<_>>()[0];
+    assert!(!reg_file.is_placeholder());
 
     let bufs = &[IoSlice::new(&TEXT)];
-
     let mut sqe = ring.next_sqe().unwrap();
 
     unsafe {
@@ -46,7 +32,6 @@ fn main() -> std::io::Result<()> {
     }
 
     ring.submit_sqes()?;
-
     let cqe = ring.wait_for_cqe()?;
     assert_eq!(cqe.user_data(), 0xDEADBEEF);
 

@@ -19,12 +19,11 @@ fn read_fixed() -> std::io::Result<()> {
     let fixed_fd = file.as_raw_fd();
     let mut reg: Registrar = ring.registrar();
 
-    // register a new set of files
-    let files = &[fixed_fd];
-    reg.register_files(files)?;
+    // register a new file
+    let fileset: Vec<RegisteredFd> = reg.register_files(&[fixed_fd])?.collect();
 
     let bufs = &[IoSlice::new(&TEXT)];
-    let reg_file = reg.fileset()[0];
+    let reg_file = fileset[0];
     println!("{:?}", reg_file);
 
     let mut sqe = ring.next_sqe().unwrap();
