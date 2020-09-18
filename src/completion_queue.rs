@@ -11,7 +11,7 @@ use super::{IoUring, CQE, CQEs, CQEsBlocking, resultify};
 ///
 /// Completion does not imply success. Completed events may be [timeouts](crate::cqe::CQE::is_iou_timeout).
 pub struct CompletionQueue<'ring> {
-    ring: NonNull<uring_sys::io_uring>,
+    pub(crate) ring: NonNull<uring_sys::io_uring>,
     _marker: PhantomData<&'ring mut IoUring>,
 }
 
@@ -23,6 +23,7 @@ impl<'ring> CompletionQueue<'ring> {
         }
     }
 
+    /// Returns the next CQE if any are available.
     pub fn peek_for_cqe(&mut self) -> Option<CQE> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
@@ -35,11 +36,26 @@ impl<'ring> CompletionQueue<'ring> {
         }
     }
 
+    /// Returns the next CQE, blocking the thread until one is ready if necessary.
     pub fn wait_for_cqe(&mut self) -> io::Result<CQE> {
         self.wait_for_cqes(1)
     }
 
-    pub fn wait_for_cqes(&mut self, count: u32) -> io::Result<CQE> {
+    #[inline(always)]
+    pub(crate) fn wait_for_cqes(&mut self, count: u32) -> io::Result<CQE> {
+        let ring = self.ring;
+        self.wait(count).map(|cqe| CQE::new(ring, cqe))
+    }
+
+    /// Block the thread until at least `count` CQEs are ready.
+    ///
+    /// These CQEs can be processed using `peek_for_cqe` or the `cqes` iterator.
+    pub fn block(&mut self, count: u32) -> io::Result<()> {
+        self.wait(count).map(|_| ())
+    }
+
+    #[inline(always)]
+    fn wait(&mut self, count: u32) -> io::Result<&mut uring_sys::io_uring_cqe> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
@@ -51,10 +67,14 @@ impl<'ring> CompletionQueue<'ring> {
                 ptr::null(),
             ))?;
 
-            Ok(CQE::new(self.ring, &mut *cqe.assume_init()))
+            Ok(&mut *cqe.assume_init())
         }
     }
 
+    /// Returns an iterator of ready CQEs.
+    ///
+    /// When there are no CQEs ready to process, the iterator will end. It will never
+    /// block the thread to wait for CQEs to be completed.
     pub fn cqes(&mut self) -> CQEs<'ring, '_> {
         CQEs {
             queue: self,
@@ -62,10 +82,15 @@ impl<'ring> CompletionQueue<'ring> {
         }
     }
 
-    pub fn cqes_blocking(&mut self) -> CQEsBlocking<'ring, '_> {
+    /// Returns an iterator of ready CQEs, blocking when there are none ready.
+    ///
+    /// This iterator never ends. Whenever there are no CQEs ready, it will block
+    /// the thread until at least `wait_for` CQEs are ready.
+    pub fn cqes_blocking(&mut self, wait_for: u32) -> CQEsBlocking<'ring, '_> {
         CQEsBlocking {
             queue: self,
             ready: 0,
+            wait_for,
         }
     }
 

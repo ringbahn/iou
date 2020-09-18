@@ -108,6 +108,7 @@ impl Iterator for CQEs<'_, '_> {
 pub struct CQEsBlocking<'a, 'b> {
     pub(crate) queue: &'b mut CompletionQueue<'a>,
     pub(crate) ready: u32,
+    pub(crate) wait_for: u32,
 }
 
 impl Iterator for CQEsBlocking<'_, '_> {
@@ -117,7 +118,7 @@ impl Iterator for CQEsBlocking<'_, '_> {
         if self.ready == 0 {
             self.ready = self.queue.ready();
             if self.ready == 0 {
-                return Some(self.queue.wait_for_cqe());
+                return Some(self.queue.wait_for_cqes(self.wait_for))
             }
         }
 
