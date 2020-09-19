@@ -24,7 +24,6 @@ fn read_fixed() -> std::io::Result<()> {
 
     let bufs = &[IoSlice::new(&TEXT)];
     let reg_file = fileset[0];
-    println!("{:?}", reg_file);
 
     let mut sqe = ring.next_sqe().unwrap();
 
