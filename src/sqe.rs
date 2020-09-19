@@ -395,7 +395,20 @@ impl<'a> SQE<'a> {
         uring_sys::io_uring_prep_files_update(self.sqe, addr, len, offset as _);
     }
 
-    // TODO prep_provide_buffers and prep_remove_buffers
+    pub unsafe fn prep_provide_buffers(&mut self,
+        buffers: &mut [u8],
+        count: u32,
+        group: BufferGroupId,
+        index: u32,
+    ) {
+        let addr = buffers.as_mut_ptr() as *mut libc::c_void;
+        let len = buffers.len() as u32 / count;
+        uring_sys::io_uring_prep_provide_buffers(self.sqe, addr, len as _, count as _, group.id as _, index as _);
+    }
+
+    pub unsafe fn prep_remove_buffers(&mut self, count: u32, id: BufferGroupId) {
+        uring_sys::io_uring_prep_remove_buffers(self.sqe, count as _, id.id as _);
+    }
 
     #[inline]
     pub unsafe fn prep_cancel(&mut self, user_data: u64, flags: i32) {
@@ -503,6 +516,11 @@ impl SockAddrStorage {
             }
         })
     }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct BufferGroupId {
+    pub id: u32,
 }
 
 bitflags::bitflags! {
