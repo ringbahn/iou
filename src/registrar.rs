@@ -1,7 +1,6 @@
 use std::convert::TryInto;
 use std::io;
 use std::marker::PhantomData;
-use std::num::NonZeroU32;
 use std::ptr::NonNull;
 use std::os::unix::io::RawFd;
 
@@ -32,7 +31,6 @@ use super::IoUring;
 /// ```
 pub struct Registrar<'ring> {
     ring: NonNull<uring_sys::io_uring>,
-    num_reg_files: Option<NonZeroU32>,
     _marker: PhantomData<&'ring mut IoUring>,
 }
 
@@ -40,15 +38,8 @@ impl<'ring> Registrar<'ring> {
     pub(crate) fn new(ring: &'ring IoUring) -> Registrar<'ring> {
         Registrar {
             ring: NonNull::from(&ring.ring),
-            num_reg_files: None,
             _marker: PhantomData,
         }
-    }
-
-    /// Get the number of currently registered files, if any. This method returns
-    /// `None` if there aren't any registered files.
-    pub fn fileset_size(&self) -> Option<u32> {
-        self.num_reg_files.map(|num| num.get())
     }
 
     /// Register a set of buffers to be mapped into the kernel.
@@ -75,9 +66,10 @@ impl<'ring> Registrar<'ring> {
     /// 
     /// # Errors
     /// Returns an error if
-    /// * there is a preexisting set of registered files, 
-    /// * an empty file descriptor slice is passed in, 
-    /// * the inner [`io_uring_register_files`](uring_sys::io_uring_register_files) call failed
+    /// * there is a preexisting set of registered files,
+    /// * the `files` slice was empty,
+    /// * the inner [`io_uring_register_files`](uring_sys::io_uring_register_files) call failed for
+    ///   another reason
     /// ```no_run
     /// # use iou::IoUring;
     /// # fn main() -> std::io::Result<()> {
@@ -93,15 +85,6 @@ impl<'ring> Registrar<'ring> {
     /// # }
     /// ```
     pub fn register_files<'a>(&mut self, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
-        if files.is_empty() {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty `files` slice"));
-        } else if self.num_reg_files.is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other, 
-                "there is a preexisting registered fileset"
-            ));
-        }
-        
         let _: i32 = resultify!(unsafe {
             uring_sys::io_uring_register_files(
                 self.ring.as_ptr(), 
@@ -109,8 +92,6 @@ impl<'ring> Registrar<'ring> {
                 files.len() as _
             )
         })?;
-        
-        self.num_reg_files = Some(NonZeroU32::new(files.len() as u32).unwrap());
         Ok(files
             .iter()
             .enumerate()
@@ -118,28 +99,18 @@ impl<'ring> Registrar<'ring> {
         )
     }
 
-    /// Update the currently registered kernel fileset. It is usually more efficient to reserve space for files before submitting events, because `IoUring` will wait until the submission queue is
+    /// Update the currently registered kernel fileset. It is usually more efficient to reserve space
+    /// for files before submitting events, because `IoUring` will wait until the submission queue is
     /// empty before registering files.
     /// # Errors
     /// Returns an error if
     /// * there isn't a registered fileset,
+    /// * the `files` slice was empty,
     /// * `offset` is out of bounds, 
-    /// * the `files` buffer is too large, 
-    /// * the inner [`io_uring_register_files_update`](uring_sys::io_uring_register_files_update) call failed
+    /// * the `files` slice was too large,
+    /// * the inner [`io_uring_register_files_update`](uring_sys::io_uring_register_files_update) call
+    ///   failed for another reason
     pub fn update_registered_files<'a>(&mut self, offset: usize, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
-        if self.fileset_size().is_none() { 
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "no fileset to update"
-            ));
-
-        } else if offset + files.len() > self.fileset_size().unwrap().try_into().unwrap() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "attempted out of bounds update for registered fileset"
-            ));
-        }
-
         let _: i32 = resultify!(unsafe {
             uring_sys::io_uring_register_files_update(
                 self.ring.as_ptr(),
@@ -148,7 +119,6 @@ impl<'ring> Registrar<'ring> {
                 files.len() as _,
             )
         })?;
-
         Ok(files
             .iter()
             .enumerate()
@@ -162,7 +132,8 @@ impl<'ring> Registrar<'ring> {
     /// # Errors
     /// Returns an error if
     /// * there isn't a registered fileset,
-    /// * the inner [`io_uring_unregister_files`](uring_sys::io_uring_unregister_files) call failed
+    /// * the inner [`io_uring_unregister_files`](uring_sys::io_uring_unregister_files) call
+    /// failed for another reason
     ///
     /// You can use this method to replace an existing fileset:
     /// ```
@@ -172,24 +143,19 @@ impl<'ring> Registrar<'ring> {
     /// # let mut registrar = ring.registrar();
     /// let raw_fds = [0, 1];
     /// let fds: Vec<_> = registrar.register_files(&raw_fds)?.collect();
-    /// assert_eq!(registrar.fileset_size(), Some(2));
+    /// assert_eq!(fds.len(), 2);
     ///
     /// registrar.unregister_files()?;
-    /// assert!(registrar.fileset_size().is_none());
     ///
     /// let other_raw_fds = [0, 1, 2];
     /// let new_fds: Vec<_> = registrar.register_files(&other_raw_fds)?.collect();
-    /// assert_eq!(registrar.fileset_size(), Some(3));
+    /// assert_eq!(new_fds.len(), 3);
     /// # Ok(())
     /// # }
     /// ```
     pub fn unregister_files(&mut self) -> io::Result<()> {
-        if self.num_reg_files.is_none() {
-            return Err(io::Error::new(io::ErrorKind::Other, "no fileset to unregister"));
-        }
         let _: i32 =
             resultify!(unsafe { uring_sys::io_uring_unregister_files(self.ring.as_ptr()) })?;
-        self.num_reg_files = None;
         Ok(())
     }
 
@@ -299,9 +265,10 @@ impl From<RegisteredFd> for RingFd {
 mod tests {
 
     use super::*;
+    use std::os::unix::io::AsRawFd;
 
     #[test]
-    #[should_panic(expected = "empty `files` slice")]
+    #[should_panic(expected = "Invalid argument")]
     fn register_empty_slice() {
         let ring = IoUring::new(1).unwrap();
         let _ = ring.registrar().register_files(&[]).unwrap();
@@ -326,60 +293,65 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "there is a preexisting registered fileset")]
+    #[should_panic(expected = "Device or resource busy")]
     fn double_register() {
         let ring = IoUring::new(1).unwrap();
-        let mut regis = ring.registrar();
-        let _ = regis.register_files(&[1]).unwrap();
-        let _ = regis.register_files(&[1]).unwrap();
+        let _ = ring.registrar().register_files(&[1]).unwrap();
+        let _ = ring.registrar().register_files(&[1]).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "no fileset to unregister")]
+    #[should_panic(expected = "No such device or address")]
     fn empty_unregister_err() {
         let ring = IoUring::new(1).unwrap();
         let _ = ring.registrar().unregister_files().unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "no fileset to update")]
+    #[should_panic(expected = "No such device or address")]
     fn empty_update_err() {
         let ring = IoUring::new(1).unwrap();
         let _ = ring.registrar().update_registered_files(0, &[1]).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "attempted out of bounds update for registered fileset")]
+    #[should_panic(expected = "Invalid argument")]
     fn offset_out_of_bounds_update() {
         let raw_fds = [1, 2];
         let ring = IoUring::new(1).unwrap();
-        let mut regis = ring.registrar();
-        let _ = regis.register_files(&raw_fds).unwrap();
-        let _ = regis.update_registered_files(2, &raw_fds).unwrap();
+        let _ = ring.registrar().register_files(&raw_fds).unwrap();
+        let _ = ring.registrar().update_registered_files(2, &raw_fds).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "attempted out of bounds update for registered fileset")]
+    #[should_panic(expected = "Invalid argument")]
     fn slice_len_out_of_bounds_update() {
         let ring = IoUring::new(1).unwrap();
-        let mut regis = ring.registrar();
-        let _ = regis.register_files(&[1, 1]).unwrap();
-        let _ = regis.update_registered_files(0, &[1, 1, 1]).unwrap();
+        let _ = ring.registrar().register_files(&[1, 1]).unwrap();
+        let _ = ring.registrar().update_registered_files(0, &[1, 1, 1]).unwrap();
     }
 
     #[test]
     fn valid_fd_update() {
         let ring = IoUring::new(1).unwrap();
-        let mut regis = ring.registrar();
-        let _ = regis.register_files(&[1, 2, 1]).unwrap();
-        let _ = regis.update_registered_files(0, &[2, 1, 2]).unwrap();
+
+        let file = std::fs::File::create("tmp.txt").unwrap();
+        let _ = ring.registrar().register_files(&[file.as_raw_fd()]).unwrap();
+
+        let new_file = std::fs::File::create("new_tmp.txt").unwrap();
+        let _ = ring.registrar().update_registered_files(0, &[new_file.as_raw_fd()]).unwrap();
+
+        let _ = std::fs::remove_file("tmp.txt");
+        let _ = std::fs::remove_file("new_tmp.txt");
     }
 
     #[test]
     fn placeholder_update() {
         let ring = IoUring::new(1).unwrap();
-        let mut regis = ring.registrar();
-        let _ = regis.register_files(&[-1, -1, -1]).unwrap();
-        let _ = regis.update_registered_files(0, &[0, 1, 2]).unwrap();
+        let _ = ring.registrar().register_files(&[-1, -1, -1]).unwrap();
+
+        let file = std::fs::File::create("tmp.txt").unwrap();
+        let _ = ring.registrar().update_registered_files(0, &[file.as_raw_fd()]).unwrap();
+        let _ = std::fs::remove_file("tmp.txt");
     }
 }
