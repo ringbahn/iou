@@ -2,9 +2,9 @@ use std::convert::TryInto;
 use std::io;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 
-use crate::{IoUring, Probe, resultify};
+use crate::{IoUring, Probe, SQE, resultify};
 
 /// A `Registrar` creates ahead-of-time kernel references to files and user buffers.
 ///
@@ -235,14 +235,18 @@ impl RegisteredFd {
         RegisteredFd { index: -1 }
     }
 
-    /// Returns this file's kernel fileset index as a raw file descriptor.
+    /// Returns this file's kernel fileset index.
     /// ```
     /// # use iou::RegisteredFd;
     /// let ph = RegisteredFd::placeholder();
-    /// assert_eq!(ph.as_fd(), -1);
+    /// assert_eq!(ph.index(), None);
     /// ```
-    pub fn as_fd(self) -> RawFd {
-        self.index
+    pub fn index(self) -> Option<u32> {
+        if self.is_placeholder() {
+            None
+        } else {
+            Some(self.index as u32)
+        }
     }
 
     /// Check whether this is a placeholder value.
@@ -251,36 +255,46 @@ impl RegisteredFd {
     }
 }
 
-/// IoUring file handles.
-#[derive(Debug, Copy, Clone)]
-pub enum RingFd {
-    /// A raw file descriptor.
-    Raw(RawFd),
-    /// A member of the kernel's fixed fileset.
-    Registered(RegisteredFd),
+pub trait RingFd {
+    fn as_raw_fd(&self) -> RawFd;
+    fn set_flags(&self, sqe: &mut SQE<'_>);
 }
 
-impl RingFd {
-    pub fn raw(self) -> RawFd {
-        match self {
-            RingFd::Raw(fd) => fd,
-            RingFd::Registered(index) => index.as_fd(),
-        }
+impl RingFd for RawFd {
+    fn as_raw_fd(&self) -> RawFd {
+        *self
     }
+    fn set_flags(&self, _: &mut SQE<'_>) { }
 }
 
-impl From<RawFd> for RingFd {
-    fn from(item: RawFd) -> RingFd {
-        RingFd::Raw(item)
-    }
-}
-
-impl From<RegisteredFd> for RingFd {
-    fn from(item: RegisteredFd) -> RingFd {
-        if item.is_placeholder() {
+impl AsRawFd for RegisteredFd {
+    fn as_raw_fd(&self) -> RawFd {
+        if self.is_placeholder() {
             panic!("attempted to perform IO on kernel fileset placeholder");
+        } else {
+            self.index
         }
-        RingFd::Registered(item)
+    }
+
+}
+
+impl RingFd for RegisteredFd {
+    fn as_raw_fd(&self) -> RawFd {
+        AsRawFd::as_raw_fd(self)
+    }
+    fn set_flags(&self, sqe: &mut SQE<'_>) {
+        sqe.set_fixed_file();
+    }
+}
+
+#[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
+pub struct Personality {
+    pub(crate) id: u16,
+}
+
+impl From<u16> for Personality {
+    fn from(id: u16) -> Personality {
+        Personality { id }
     }
 }
 
@@ -376,16 +390,5 @@ mod tests {
         let file = std::fs::File::create("tmp.txt").unwrap();
         let _ = ring.registrar().update_registered_files(0, &[file.as_raw_fd()]).unwrap();
         let _ = std::fs::remove_file("tmp.txt");
-    }
-}
-
-#[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
-pub struct Personality {
-    pub(crate) id: u16,
-}
-
-impl From<u16> for Personality {
-    fn from(id: u16) -> Personality {
-        Personality { id }
     }
 }
