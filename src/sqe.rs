@@ -95,13 +95,15 @@ impl<'a> SQE<'a> {
     #[inline]
     pub unsafe fn prep_read(
         &mut self,
-        fd: RawFd,
+        fd: impl Into<RingFd>,
         buf: &mut [u8],
         offset: u64,
     ) {
+        let fd = fd.into();
         let len = buf.len();
         let addr = buf.as_mut_ptr();
-        uring_sys::io_uring_prep_read(self.sqe, fd, addr as _, len as _, offset as _);
+        uring_sys::io_uring_prep_read(self.sqe, fd.raw(), addr as _, len as _, offset as _);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
@@ -141,13 +143,15 @@ impl<'a> SQE<'a> {
     #[inline]
     pub unsafe fn prep_write(
         &mut self,
-        fd: RawFd,
+        fd: impl Into<RingFd>,
         buf: &[u8],
         offset: u64,
     ) {
+        let fd = fd.into();
         let len = buf.len();
         let addr = buf.as_ptr();
-        uring_sys::io_uring_prep_write(self.sqe, fd, addr as _, len as _, offset as _);
+        uring_sys::io_uring_prep_write(self.sqe, fd.raw(), addr as _, len as _, offset as _);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
@@ -208,61 +212,73 @@ impl<'a> SQE<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_recv(&mut self, fd: RawFd, buf: &mut [u8], flags: MsgFlags) {
+    pub unsafe fn prep_recv(&mut self, fd: impl Into<RingFd>, buf: &mut [u8], flags: MsgFlags) {
+        let fd = fd.into();
         let data = buf.as_mut_ptr() as *mut libc::c_void;
         let len = buf.len();
-        uring_sys::io_uring_prep_send(self.sqe, fd, data, len, flags.bits());
+        uring_sys::io_uring_prep_send(self.sqe, fd.raw(), data, len, flags.bits());
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
-    pub unsafe fn prep_send(&mut self, fd: RawFd, buf: &[u8], flags: MsgFlags) {
+    pub unsafe fn prep_send(&mut self, fd: impl Into<RingFd>, buf: &[u8], flags: MsgFlags) {
+        let fd = fd.into();
         let data = buf.as_ptr() as *const libc::c_void as *mut libc::c_void;
         let len = buf.len();
-        uring_sys::io_uring_prep_send(self.sqe, fd, data, len, flags.bits());
+        uring_sys::io_uring_prep_send(self.sqe, fd.raw(), data, len, flags.bits());
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     // TODO sendmsg and recvmsg
     //
     #[inline]
-    pub unsafe fn prep_fallocate(&mut self, fd: RawFd,
+    pub unsafe fn prep_fallocate(&mut self, fd: impl Into<RingFd>,
                                  offset: u64, size: u64,
                                  flags: FallocateFlags) {
-        uring_sys::io_uring_prep_fallocate(self.sqe, fd,
+        let fd = fd.into();
+        uring_sys::io_uring_prep_fallocate(self.sqe, fd.raw(),
                                         flags.bits() as _,
                                         offset as _,
                                         size as _);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
     pub unsafe fn prep_statx(
         &mut self,
-        dirfd: RawFd,
+        dirfd: impl Into<RingFd>,
         path: &CStr,
         flags: StatxFlags,
         mask: StatxMode,
         buf: &mut libc::statx,
     ) {
-        uring_sys::io_uring_prep_statx(self.sqe, dirfd, path.as_ptr() as _,
+        let dirfd = dirfd.into();
+        uring_sys::io_uring_prep_statx(self.sqe, dirfd.raw(), path.as_ptr() as _,
                                        flags.bits() as _, mask.bits() as _,
                                        buf as _);
+        if let RingFd::Registered(_) = dirfd { self.set_fixed_file(); };
     }
 
     #[inline]
     pub unsafe fn prep_openat(
         &mut self,
-        fd: RawFd,
+        fd: impl Into<RingFd>,
         path: &CStr,
         flags: OFlag,
         mode: Mode,
     ) {
-        uring_sys::io_uring_prep_openat(self.sqe, fd, path.as_ptr() as _, flags.bits(), mode.bits());
+        let fd = fd.into();
+        uring_sys::io_uring_prep_openat(self.sqe, fd.raw(), path.as_ptr() as _, flags.bits(), mode.bits());
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     // TODO openat2
 
     #[inline]
-    pub unsafe fn prep_close(&mut self, fd: RawFd) {
-        uring_sys::io_uring_prep_close(self.sqe, fd);
+    pub unsafe fn prep_close(&mut self, fd: impl Into<RingFd>) {
+        let fd = fd.into();
+        uring_sys::io_uring_prep_close(self.sqe, fd.raw());
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
 
@@ -314,8 +330,10 @@ impl<'a> SQE<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_poll_add(&mut self, fd: RawFd, poll_flags: PollFlags) {
-        uring_sys::io_uring_prep_poll_add(self.sqe, fd, poll_flags.bits())
+    pub unsafe fn prep_poll_add(&mut self, fd: impl Into<RingFd>, poll_flags: PollFlags) {
+        let fd = fd.into();
+        uring_sys::io_uring_prep_poll_add(self.sqe, fd.raw(), poll_flags.bits());
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
@@ -324,23 +342,28 @@ impl<'a> SQE<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_connect(&mut self, fd: RawFd, socket_addr: &SockAddr) {
+    pub unsafe fn prep_connect(&mut self, fd: impl Into<RingFd>, socket_addr: &SockAddr) {
+        let fd = fd.into();
         let (addr, len) = socket_addr.as_ffi_pair();
-        uring_sys::io_uring_prep_connect(self.sqe, fd, addr as *const _ as *mut _, len);
+        uring_sys::io_uring_prep_connect(self.sqe, fd.raw(), addr as *const _ as *mut _, len);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
-    pub unsafe fn prep_accept(&mut self, fd: RawFd, accept: Option<&mut SockAddrStorage>, flags: SockFlag) {
+    pub unsafe fn prep_accept(&mut self, fd: impl Into<RingFd>, accept: Option<&mut SockAddrStorage>, flags: SockFlag) {
+        let fd = fd.into();
         let (addr, len) = match accept {
             Some(accept) => (accept.storage.as_mut_ptr() as *mut _, &mut accept.len as *mut _ as *mut _),
             None => (std::ptr::null_mut(), std::ptr::null_mut())
         };
-        uring_sys::io_uring_prep_accept(self.sqe, fd, addr, len, flags.bits())
+        uring_sys::io_uring_prep_accept(self.sqe, fd.raw(), addr, len, flags.bits());
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
-    pub unsafe fn prep_fadvise(&mut self, fd: RawFd, off: u64, len: u64, advice: PosixFadviseAdvice) {
+    pub unsafe fn prep_fadvise(&mut self, fd: impl Into<RingFd>, off: u64, len: u64, advice: PosixFadviseAdvice) {
         use PosixFadviseAdvice::*;
+        let fd = fd.into();
         let advice = match advice {
             POSIX_FADV_NORMAL       => libc::POSIX_FADV_NORMAL,
             POSIX_FADV_SEQUENTIAL   => libc::POSIX_FADV_SEQUENTIAL,
@@ -349,7 +372,8 @@ impl<'a> SQE<'a> {
             POSIX_FADV_WILLNEED     => libc::POSIX_FADV_WILLNEED,
             POSIX_FADV_DONTNEED     => libc::POSIX_FADV_DONTNEED,
         };
-        uring_sys::io_uring_prep_fadvise(self.sqe, fd, off as _, len as _, advice);
+        uring_sys::io_uring_prep_fadvise(self.sqe, fd.raw(), off as _, len as _, advice);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
