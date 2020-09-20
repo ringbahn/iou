@@ -6,7 +6,7 @@ use std::{io, net::TcpListener};
 fn connect() -> io::Result<()> {
     let listener = TcpListener::bind(("0.0.0.0", 0))?;
     listener.set_nonblocking(true)?;
-    let listener_addr = iou::SockAddr::new_inet(InetAddr::from_std(&listener.local_addr()?));
+    let listener_addr = iou::sqe::SockAddr::new_inet(InetAddr::from_std(&listener.local_addr()?));
 
     let socket = nix::sys::socket::socket(
         AddressFamily::Inet,

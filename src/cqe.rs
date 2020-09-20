@@ -51,7 +51,8 @@ impl CQE {
     /// # let mut cq_event;
     /// cq_event = ring.wait_for_cqe()?;
     /// # // rewrite to be a fake timeout
-    /// # let cq_event = CQE::from_raw_parts(uring_sys::LIBURING_UDATA_TIMEOUT, 0, 0);
+    /// # let flags = iou::CompletionFlags::empty();
+    /// # let cq_event = CQE::from_raw_parts(uring_sys::LIBURING_UDATA_TIMEOUT, 0, flags);
     /// assert!(cq_event.is_iou_timeout());
     /// # Ok(())
     /// # }

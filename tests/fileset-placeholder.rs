@@ -10,7 +10,7 @@ fn main() -> std::io::Result<()> {
     let mut ring = IoUring::new(2)?;
     let mut registrar = ring.registrar();
 
-    let reserve_files = [RegisteredFd::placeholder().as_fd(); 1024];
+    let reserve_files = [iou::PLACEHOLDER_FD; 1024];
     let fileset: Vec<RegisteredFd> = registrar.register_files(&reserve_files)?.collect();
     assert!(fileset.iter().all(|fd| fd.is_placeholder()));
 
@@ -24,7 +24,7 @@ fn main() -> std::io::Result<()> {
     assert!(!reg_file.is_placeholder());
 
     let bufs = &[IoSlice::new(&TEXT)];
-    let mut sqe = ring.next_sqe().unwrap();
+    let mut sqe = ring.prepare_sqe().unwrap();
 
     unsafe {
         sqe.prep_write_vectored(reg_file, bufs, 0);
@@ -35,7 +35,7 @@ fn main() -> std::io::Result<()> {
     let cqe = ring.wait_for_cqe()?;
     assert_eq!(cqe.user_data(), 0xDEADBEEF);
 
-    let n = cqe.result()?;
+    let n = cqe.result()? as usize;
     assert!(n == TEXT.len());
 
     let mut file = File::open(&path)?;

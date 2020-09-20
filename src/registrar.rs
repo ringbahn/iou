@@ -16,7 +16,7 @@ use crate::{IoUring, Probe, SQE, resultify};
 /// sensitive code.
 ///
 /// If you want to register a file but don't have an open file descriptor yet, you can register
-/// a [placeholder](crate::RegisteredFd::placeholder) descriptor and
+/// a [placeholder](crate::PLACEHOLDER_FD) descriptor and
 /// [update](crate::registrar::Registrar::update_registered_files) it later.
 /// ```
 /// # use iou::{IoUring, Registrar, RegisteredFd};
@@ -78,7 +78,7 @@ impl<'ring> Registrar<'ring> {
     /// # let bufs = &[std::io::IoSlice::new(b"hi")];
     /// let fileset: Vec<_> = registrar.register_files(&raw_fds)?.collect();
     /// let reg_file = fileset[0];
-    /// # let mut sqe = ring.next_sqe().unwrap();
+    /// # let mut sqe = ring.prepare_sqe().unwrap();
     /// unsafe { sqe.prep_write_vectored(reg_file, bufs, 0); }
     /// # Ok(())
     /// # }
@@ -210,10 +210,6 @@ unsafe impl<'ring> Sync for Registrar<'ring> { }
 ///
 /// Submission event prep methods on `RegisteredFd` will ensure that the submission event's
 /// `SubmissionFlags::FIXED_FILE` flag is properly set.
-///
-/// # Panics
-/// In order to reserve kernel fileset space, `RegisteredFd`s can be placeholders.
-/// Placeholders can be interspersed with actual files. Attempted IO events on placeholders will panic.
 #[derive(Debug, Copy, Clone)]
 pub struct RegisteredFd {
     index: u32,
@@ -242,6 +238,10 @@ impl RegisteredFd {
 
 pub const PLACEHOLDER_FD: RawFd = -1;
 
+/// A file descriptor that can be used to prepare SQEs.
+///
+/// The standard library's [`RawFd`] type implements this trait, but so does [`RegisteredFd`], a
+/// type which is returned when a user pre-registers file descriptors with an io-uring instance.
 pub trait RingFd {
     fn as_raw_fd(&self) -> RawFd;
     fn update_sqe(&self, sqe: &mut SQE<'_>);
@@ -302,17 +302,6 @@ mod tests {
     fn register_bad_fd() {
         let ring = IoUring::new(1).unwrap();
         let _ = ring.registrar().register_files(&[-100]).unwrap();
-    }
-
-    #[test]
-    #[should_panic(expected = "attempted to perform IO on kernel fileset placeholder")]
-    fn placeholder_submit() {
-        let mut ring = IoUring::new(1).unwrap();
-        let mut sqe = ring.next_sqe().unwrap();
-
-        unsafe {
-            sqe.prep_read_vectored(RegisteredFd::placeholder(), &mut [], 0);
-        }
     }
 
     #[test]

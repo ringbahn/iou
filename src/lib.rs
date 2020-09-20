@@ -64,20 +64,22 @@ bitflags::bitflags! {
     ///
     /// ```no_run
     /// # use std::io;
-    /// # use iou::{IoUring, SetupFlags};
+    /// # use iou::{IoUring, SetupFlags, SetupFeatures};
     /// # fn main() -> io::Result<()> {
+    /// let no_features = SetupFeatures::empty();
+    ///
     /// // specify polled IO
-    /// let mut ring = IoUring::new_with_flags(32, SetupFlags::IOPOLL)?;
+    /// let mut ring = IoUring::new_with_flags(32, SetupFlags::IOPOLL, no_features)?;
     ///
     /// // assign a kernel thread to poll the submission queue
-    /// let mut ring = IoUring::new_with_flags(8, SetupFlags::SQPOLL)?;
+    /// let mut ring = IoUring::new_with_flags(8, SetupFlags::SQPOLL, no_features)?;
     ///
     /// // force the kernel thread to use the same cpu as the submission queue
     /// let mut ring = IoUring::new_with_flags(8,
-    ///     SetupFlags::IOPOLL | SetupFlags::SQPOLL | SetupFlags::SQ_AFF)?;
+    ///     SetupFlags::IOPOLL | SetupFlags::SQPOLL | SetupFlags::SQ_AFF, no_features)?;
     ///
     /// // setting `SQ_AFF` without `SQPOLL` is an error
-    /// assert!(IoUring::new_with_flags(8, SetupFlags::SQ_AFF).is_err());
+    /// assert!(IoUring::new_with_flags(8, SetupFlags::SQ_AFF, no_features).is_err());
     /// # Ok(())
     /// # }
     /// ```
@@ -118,13 +120,13 @@ bitflags::bitflags! {
 ///
 /// ```
 /// # use std::io;
-/// # use iou::{IoUring, SetupFlags};
+/// # use iou::{IoUring, SetupFlags, SetupFeatures};
 /// # fn main() -> io::Result<()> {
 /// // make a IoUring with 16 entries
 /// let mut ring = IoUring::new(16)?;
 ///
 /// // make a IoUring set to poll the IO context
-/// let mut ring = IoUring::new_with_flags(32, SetupFlags::IOPOLL)?;
+/// let mut ring = IoUring::new_with_flags(32, SetupFlags::IOPOLL, SetupFeatures::empty())?;
 /// # Ok(())
 /// # }
 /// ```
