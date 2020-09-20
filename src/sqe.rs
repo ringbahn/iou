@@ -6,7 +6,7 @@ use std::ptr::{self, NonNull};
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use super::IoUring;
+use super::{IoUring, RingFd};
 use super::{PollFlags, SockAddr, SockFlag};
 
 /// The queue of pending IO events.
@@ -174,6 +174,12 @@ impl<'a> SubmissionQueueEvent<'a> {
         self.sqe.flags = flags.bits() as _;
     }
 
+    // must be called after any prep methods to properly complete mapped kernel IO
+    #[inline]
+    fn set_fixed_file(&mut self) {
+        self.set_flags(self.flags() | SubmissionFlags::FIXED_FILE);
+    }
+
     #[inline]
     pub unsafe fn prep_statx(
         &mut self,
@@ -207,31 +213,35 @@ impl<'a> SubmissionQueueEvent<'a> {
     #[inline]
     pub unsafe fn prep_read_vectored(
         &mut self,
-        fd: RawFd,
+        fd: impl Into<RingFd>,
         bufs: &mut [io::IoSliceMut<'_>],
         offset: usize,
     ) {
+        let fd = fd.into();
         let len = bufs.len();
         let addr = bufs.as_mut_ptr();
-        uring_sys::io_uring_prep_readv(self.sqe, fd, addr as _, len as _, offset as _);
+        uring_sys::io_uring_prep_readv(self.sqe, fd.raw(), addr as _, len as _, offset as _);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
     pub unsafe fn prep_read_fixed(
         &mut self,
-        fd: RawFd,
+        fd: impl Into<RingFd>,
         buf: &mut [u8],
         offset: u64,
         buf_index: usize,
     ) {
+        let fd = fd.into();
         let len = buf.len();
         let addr = buf.as_mut_ptr();
         uring_sys::io_uring_prep_read_fixed(self.sqe,
-                                      fd,
+                                      fd.raw(),
                                       addr as _,
                                       len as _,
                                       offset as _,
                                       buf_index as _);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
@@ -253,13 +263,19 @@ impl<'a> SubmissionQueueEvent<'a> {
     #[inline]
     pub unsafe fn prep_write_vectored(
         &mut self,
-        fd: RawFd,
+        fd: impl Into<RingFd>,
         bufs: &[io::IoSlice<'_>],
         offset: usize,
     ) {
+        let fd = fd.into();
         let len = bufs.len();
         let addr = bufs.as_ptr();
-        uring_sys::io_uring_prep_writev(self.sqe, fd, addr as _, len as _, offset as _);
+        uring_sys::io_uring_prep_writev(self.sqe,
+                                    fd.raw(),
+                                    addr as _,
+                                    len as _,
+                                    offset as _);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
@@ -281,23 +297,28 @@ impl<'a> SubmissionQueueEvent<'a> {
     #[inline]
     pub unsafe fn prep_write_fixed(
         &mut self,
-        fd: RawFd,
+        fd: impl Into<RingFd>,
         buf: &[u8],
         offset: u64,
         buf_index: usize,
     ) {
+        let fd = fd.into();
         let len = buf.len();
         let addr = buf.as_ptr();
         uring_sys::io_uring_prep_write_fixed(self.sqe,
-                                       fd, addr as _,
+                                       fd.raw(),
+                                       addr as _,
                                        len as _,
                                        offset as _,
                                        buf_index as _);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
-    pub unsafe fn prep_fsync(&mut self, fd: RawFd, flags: FsyncFlags) {
-        uring_sys::io_uring_prep_fsync(self.sqe, fd, flags.bits() as _);
+    pub unsafe fn prep_fsync(&mut self, fd: impl Into<RingFd>, flags: FsyncFlags) {
+        let fd = fd.into();
+        uring_sys::io_uring_prep_fsync(self.sqe, fd.raw(), flags.bits() as _);
+        if let RingFd::Registered(_) = fd { self.set_fixed_file(); };
     }
 
     #[inline]
@@ -486,8 +507,6 @@ impl SockAddrStorage {
 
 bitflags::bitflags! {
     /// [`SubmissionQueueEvent`](SubmissionQueueEvent) configuration flags.
-    ///
-    /// Use a [`Registrar`](crate::registrar::Registrar) to register files for the `FIXED_FILE` flag.
     pub struct SubmissionFlags: u8 {
         /// This event's file descriptor is an index into the preregistered set of files.
         const FIXED_FILE    = 1 << 0;   /* use fixed fileset */
