@@ -57,7 +57,7 @@ pub use completion_queue::CompletionQueue;
 pub use submission_queue::SubmissionQueue;
 
 pub use probe::Probe;
-pub use registrar::{Registrar, RingFd, RegisteredFd, Personality};
+pub use registrar::{Registrar, RingFd, RegisteredFd, Personality, PLACEHOLDER_FD};
 
 bitflags::bitflags! {
     /// `IoUring` initialization flags for advanced use cases.

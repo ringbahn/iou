@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::io;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -85,6 +84,7 @@ impl<'ring> Registrar<'ring> {
     /// # }
     /// ```
     pub fn register_files<'a>(&mut self, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
+        assert!(files.len() <= u32::MAX as usize);
         resultify(unsafe {
             uring_sys::io_uring_register_files(
                 self.ring.as_ptr(), 
@@ -95,7 +95,7 @@ impl<'ring> Registrar<'ring> {
         Ok(files
             .iter()
             .enumerate()
-            .map(|(i, &fd)| RegisteredFd::new(i, fd))
+            .map(|(i, &fd)| RegisteredFd::new(i as u32, fd))
         )
     }
 
@@ -111,6 +111,7 @@ impl<'ring> Registrar<'ring> {
     /// * the inner [`io_uring_register_files_update`](uring_sys::io_uring_register_files_update) call
     ///   failed for another reason
     pub fn update_registered_files<'a>(&mut self, offset: usize, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
+        assert!(files.len() + offset <= u32::MAX as usize);
         resultify(unsafe {
             uring_sys::io_uring_register_files_update(
                 self.ring.as_ptr(),
@@ -122,7 +123,7 @@ impl<'ring> Registrar<'ring> {
         Ok(files
             .iter()
             .enumerate()
-            .map(move |(i, &fd)| RegisteredFd::new(i + offset, fd))
+            .map(move |(i, &fd)| RegisteredFd::new((i + offset) as u32, fd))
         )
     }
 
@@ -214,66 +215,49 @@ unsafe impl<'ring> Sync for Registrar<'ring> { }
 /// In order to reserve kernel fileset space, `RegisteredFd`s can be placeholders.
 /// Placeholders can be interspersed with actual files. Attempted IO events on placeholders will panic.
 #[derive(Debug, Copy, Clone)]
-#[repr(transparent)]
 pub struct RegisteredFd {
-    index: RawFd,
+    index: u32,
+    fd: RawFd,
 }
 
 impl RegisteredFd {
-    pub(crate) fn new(index: usize, fd: RawFd) -> RegisteredFd {
-        if fd == -1 {
-            RegisteredFd::placeholder()
-        } else {
-            RegisteredFd {
-                index: index.try_into().unwrap(),
-            }
+    pub(crate) fn new(index: u32, fd: RawFd) -> RegisteredFd {
+        RegisteredFd {
+            index, fd,
         }
     }
 
-    /// Get a new `RegisteredFd` placeholder. Used to reserve kernel fileset entries.
-    pub fn placeholder() -> RegisteredFd {
-        RegisteredFd { index: -1 }
+    pub fn index(&self) -> u32 {
+        self.index
     }
 
-    /// Returns this file's kernel fileset index.
-    /// ```
-    /// # use iou::RegisteredFd;
-    /// let ph = RegisteredFd::placeholder();
-    /// assert_eq!(ph.index(), None);
-    /// ```
-    pub fn index(self) -> Option<u32> {
-        if self.is_placeholder() {
-            None
-        } else {
-            Some(self.index as u32)
-        }
+    pub fn raw_fd(&self) -> RawFd {
+        self.fd
     }
 
-    /// Check whether this is a placeholder value.
-    pub fn is_placeholder(self) -> bool {
-        self.index == -1
+    pub fn is_placeholder(&self) -> bool {
+        self.fd == PLACEHOLDER_FD
     }
 }
 
+pub const PLACEHOLDER_FD: RawFd = -1;
+
 pub trait RingFd {
     fn as_raw_fd(&self) -> RawFd;
-    fn set_flags(&self, sqe: &mut SQE<'_>);
+    fn update_sqe(&self, sqe: &mut SQE<'_>);
 }
 
 impl RingFd for RawFd {
     fn as_raw_fd(&self) -> RawFd {
         *self
     }
-    fn set_flags(&self, _: &mut SQE<'_>) { }
+
+    fn update_sqe(&self, _: &mut SQE<'_>) { }
 }
 
 impl AsRawFd for RegisteredFd {
     fn as_raw_fd(&self) -> RawFd {
-        if self.is_placeholder() {
-            panic!("attempted to perform IO on kernel fileset placeholder");
-        } else {
-            self.index
-        }
+        self.fd
     }
 
 }
@@ -282,7 +266,9 @@ impl RingFd for RegisteredFd {
     fn as_raw_fd(&self) -> RawFd {
         AsRawFd::as_raw_fd(self)
     }
-    fn set_flags(&self, sqe: &mut SQE<'_>) {
+
+    fn update_sqe(&self, sqe: &mut SQE<'_>) {
+        unsafe { sqe.raw_mut().fd = self.index as RawFd; }
         sqe.set_fixed_file();
     }
 }

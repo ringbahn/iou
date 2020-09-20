@@ -102,7 +102,7 @@ impl<'a> SQE<'a> {
         let len = buf.len();
         let addr = buf.as_mut_ptr();
         uring_sys::io_uring_prep_read(self.sqe, fd.as_raw_fd(), addr as _, len as _, offset as _);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -115,7 +115,7 @@ impl<'a> SQE<'a> {
         let len = bufs.len();
         let addr = bufs.as_mut_ptr();
         uring_sys::io_uring_prep_readv(self.sqe, fd.as_raw_fd(), addr as _, len as _, offset as _);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -134,7 +134,7 @@ impl<'a> SQE<'a> {
                                       len as _,
                                       offset as _,
                                       buf_index as _);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -147,7 +147,7 @@ impl<'a> SQE<'a> {
         let len = buf.len();
         let addr = buf.as_ptr();
         uring_sys::io_uring_prep_write(self.sqe, fd.as_raw_fd(), addr as _, len as _, offset as _);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -164,7 +164,7 @@ impl<'a> SQE<'a> {
                                     addr as _,
                                     len as _,
                                     offset as _);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -183,13 +183,13 @@ impl<'a> SQE<'a> {
                                        len as _,
                                        offset as _,
                                        buf_index as _);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
     pub unsafe fn prep_fsync(&mut self, fd: impl RingFd, flags: FsyncFlags) {
         uring_sys::io_uring_prep_fsync(self.sqe, fd.as_raw_fd(), flags.bits() as _);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     pub unsafe fn prep_splice(
@@ -209,7 +209,7 @@ impl<'a> SQE<'a> {
         let data = buf.as_mut_ptr() as *mut libc::c_void;
         let len = buf.len();
         uring_sys::io_uring_prep_send(self.sqe, fd.as_raw_fd(), data, len, flags.bits());
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -217,7 +217,7 @@ impl<'a> SQE<'a> {
         let data = buf.as_ptr() as *const libc::c_void as *mut libc::c_void;
         let len = buf.len();
         uring_sys::io_uring_prep_send(self.sqe, fd.as_raw_fd(), data, len, flags.bits());
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     // TODO sendmsg and recvmsg
@@ -230,7 +230,7 @@ impl<'a> SQE<'a> {
                                         flags.bits() as _,
                                         offset as _,
                                         size as _);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -245,7 +245,7 @@ impl<'a> SQE<'a> {
         uring_sys::io_uring_prep_statx(self.sqe, dirfd.as_raw_fd(), path.as_ptr() as _,
                                        flags.bits() as _, mask.bits() as _,
                                        buf as _);
-        dirfd.set_flags(self);
+        dirfd.update_sqe(self);
     }
 
     #[inline]
@@ -257,7 +257,7 @@ impl<'a> SQE<'a> {
         mode: Mode,
     ) {
         uring_sys::io_uring_prep_openat(self.sqe, fd.as_raw_fd(), path.as_ptr() as _, flags.bits(), mode.bits());
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     // TODO openat2
@@ -265,7 +265,7 @@ impl<'a> SQE<'a> {
     #[inline]
     pub unsafe fn prep_close(&mut self, fd: impl RingFd) {
         uring_sys::io_uring_prep_close(self.sqe, fd.as_raw_fd());
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
 
@@ -319,7 +319,7 @@ impl<'a> SQE<'a> {
     #[inline]
     pub unsafe fn prep_poll_add(&mut self, fd: impl RingFd, poll_flags: PollFlags) {
         uring_sys::io_uring_prep_poll_add(self.sqe, fd.as_raw_fd(), poll_flags.bits());
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -331,7 +331,7 @@ impl<'a> SQE<'a> {
     pub unsafe fn prep_connect(&mut self, fd: impl RingFd, socket_addr: &SockAddr) {
         let (addr, len) = socket_addr.as_ffi_pair();
         uring_sys::io_uring_prep_connect(self.sqe, fd.as_raw_fd(), addr as *const _ as *mut _, len);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -341,7 +341,7 @@ impl<'a> SQE<'a> {
             None => (std::ptr::null_mut(), std::ptr::null_mut())
         };
         uring_sys::io_uring_prep_accept(self.sqe, fd.as_raw_fd(), addr, len, flags.bits());
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
@@ -356,7 +356,7 @@ impl<'a> SQE<'a> {
             POSIX_FADV_DONTNEED     => libc::POSIX_FADV_DONTNEED,
         };
         uring_sys::io_uring_prep_fadvise(self.sqe, fd.as_raw_fd(), off as _, len as _, advice);
-        fd.set_flags(self);
+        fd.update_sqe(self);
     }
 
     #[inline]
