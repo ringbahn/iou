@@ -619,20 +619,31 @@ impl<'ring> SQEs<'ring> {
         }
     }
 
+    /// Consumes all remaining [`SQE`]s, returning the last one. Subsequent attempts to get
+    /// additional [`SQE`]s will return `None`.
     pub fn single(&mut self) -> Option<SQE<'ring>> {
         let mut next = None;
         while let Some(sqe) = self.consume() { next = Some(sqe) }
         next
     }
 
+    /// An iterator of [`HardLinkedSQE`]s. These will be [`SQE`]s that are *hard-linked* together.
+    ///
+    /// Hard-linked SQEs will occur sequentially. All of them will be completed, even if one of the
+    /// events resolves to an error.
     pub fn hard_linked(&mut self) -> HardLinked<'ring, '_> {
         HardLinked { sqes: self }
     }
 
+    /// An iterator of [`SoftLinkedSQE`]s. These will be [`SQE`]s that are *soft-linked* together.
+    ///
+    /// Soft-linked SQEs will occur sequentially. If one the events errors, all events after it
+    /// will be cancelled.
     pub fn soft_linked(&mut self) -> SoftLinked<'ring, '_> {
         SoftLinked { sqes: self }
     }
 
+    /// Remaining [`SQE`]s that can be modified.
     pub fn remaining(&self) -> u32 {
         self.sqes.len() as u32
     }
