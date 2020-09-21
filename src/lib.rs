@@ -43,6 +43,7 @@ mod submission_queue;
 mod probe;
 mod registrar;
 
+use std::fmt;
 use std::io;
 use std::mem::{self, MaybeUninit};
 use std::os::unix::io::RawFd;
@@ -323,6 +324,12 @@ impl IoUring {
 
     pub fn raw_fd(&self) -> RawFd {
         self.ring.ring_fd
+    }
+}
+
+impl fmt::Debug for IoUring {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct(std::any::type_name::<Self>()).field("fd", &self.ring.ring_fd).finish()
     }
 }
 

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io;
 use std::ptr::{self, NonNull};
 use std::marker::PhantomData;
@@ -127,6 +128,13 @@ impl<'ring> SubmissionQueue<'ring> {
 
     pub fn space_left(&self) -> u32 {
         unsafe { uring_sys::io_uring_sq_space_left(self.ring.as_ptr()) as u32 }
+    }
+}
+
+impl fmt::Debug for SubmissionQueue<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let fd = unsafe { self.ring.as_ref().ring_fd };
+        f.debug_struct(std::any::type_name::<Self>()).field("fd", &fd).finish()
     }
 }
 

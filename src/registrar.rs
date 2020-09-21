@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -198,6 +199,13 @@ impl<'ring> Registrar<'ring> {
     }
 }
 
+impl fmt::Debug for Registrar<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let fd = unsafe { self.ring.as_ref().ring_fd };
+        f.debug_struct(std::any::type_name::<Self>()).field("fd", &fd).finish()
+    }
+}
+
 unsafe impl<'ring> Send for Registrar<'ring> { }
 unsafe impl<'ring> Sync for Registrar<'ring> { }
 
@@ -273,7 +281,7 @@ impl RingFd for RegisteredFd {
     }
 }
 
-#[derive(Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
 pub struct Personality {
     pub(crate) id: u16,
 }
