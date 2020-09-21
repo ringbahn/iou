@@ -9,8 +9,8 @@ fn test_poll_add() -> io::Result<()> {
     let mut ring = iou::IoUring::new(2)?;
     let (mut read, mut write) = net::UnixStream::pair()?;
     unsafe {
-        let mut sqe = ring.next_sqe().expect("failed to get sqe");
-        sqe.prep_poll_add(read.as_raw_fd(), iou::PollFlags::POLLIN);
+        let mut sqe = ring.prepare_sqe().expect("failed to get sqe");
+        sqe.prep_poll_add(read.as_raw_fd(), iou::sqe::PollFlags::POLLIN);
         sqe.set_user_data(0xDEADBEEF);
         ring.submit_sqes()?;
     }
@@ -19,8 +19,8 @@ fn test_poll_add() -> io::Result<()> {
 
     let cqe = ring.wait_for_cqe()?;
     assert_eq!(cqe.user_data(), 0xDEADBEEF);
-    let mask = unsafe { iou::PollFlags::from_bits_unchecked(cqe.result()? as _) };
-    assert!(mask.contains(iou::PollFlags::POLLIN));
+    let mask = unsafe { iou::sqe::PollFlags::from_bits_unchecked(cqe.result()? as _) };
+    assert!(mask.contains(iou::sqe::PollFlags::POLLIN));
     let mut buf = [0; MESSAGE.len()];
     read.read(&mut buf)?;
     assert_eq!(buf, MESSAGE);
@@ -34,12 +34,12 @@ fn test_poll_remove() -> io::Result<()> {
     let uname = nix::sys::utsname::uname();
     let version = semver::Version::parse(uname.release());
     unsafe {
-        let mut sqe = ring.next_sqe().expect("failed to get sqe");
-        sqe.prep_poll_add(read.as_raw_fd(), iou::PollFlags::POLLIN);
+        let mut sqe = ring.prepare_sqe().expect("failed to get sqe");
+        sqe.prep_poll_add(read.as_raw_fd(), iou::sqe::PollFlags::POLLIN);
         sqe.set_user_data(0xDEADBEEF);
         ring.submit_sqes()?;
 
-        let mut sqe = ring.next_sqe().expect("failed to get sqe");
+        let mut sqe = ring.prepare_sqe().expect("failed to get sqe");
         sqe.prep_poll_remove(0xDEADBEEF);
         sqe.set_user_data(42);
         ring.submit_sqes()?;

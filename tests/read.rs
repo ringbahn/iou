@@ -45,7 +45,7 @@ fn read_test() -> io::Result<()> {
 #[inline(never)]
 unsafe fn prep(ring: &mut iou::IoUring, bufs: &mut [IoSliceMut], fd: RawFd) -> io::Result<()> {
     let mut sq = ring.sq();
-    let mut sqe = sq.next_sqe().unwrap();
+    let mut sqe = sq.prepare_sqe().unwrap();
     sqe.prep_read_vectored(fd, bufs, 0);
     sqe.set_user_data(0xDEADBEEF);
     sq.submit()?;

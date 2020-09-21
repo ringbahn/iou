@@ -25,7 +25,7 @@ fn read_fixed() -> std::io::Result<()> {
     let bufs = &[IoSlice::new(&TEXT)];
     let reg_file = fileset[0];
 
-    let mut sqe = ring.next_sqe().unwrap();
+    let mut sqe = ring.prepare_sqe().unwrap();
 
     unsafe {
         sqe.prep_write_vectored(reg_file, bufs, 0);
@@ -37,7 +37,7 @@ fn read_fixed() -> std::io::Result<()> {
     let cqe = ring.wait_for_cqe()?;
     assert_eq!(cqe.user_data(), 0xDEADBEEF);
 
-    let n = cqe.result()?;
+    let n = cqe.result()? as usize;
     assert!(n == TEXT.len());
 
     let mut file = File::open(&path)?;

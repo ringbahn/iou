@@ -7,17 +7,15 @@ fn noop_test() -> io::Result<()> {
 
     // confirm that submit and enter work
     unsafe {
-        let mut sq = io_uring.sq();
-        let mut sqe = sq.next_sqe().unwrap();
+        let mut sqe = io_uring.prepare_sqe().unwrap();
         sqe.prep_nop();
         sqe.set_user_data(0xDEADBEEF);
     }
-    io_uring.sq().submit()?;
+    io_uring.submit_sqes()?;
 
     // confirm that cq reading works
     {
-        let mut cq = io_uring.cq();
-        let cqe = cq.wait_for_cqe()?;
+        let cqe = io_uring.wait_for_cqe()?;
         assert_eq!(cqe.user_data(), 0xDEADBEEF);
     }
 

@@ -32,7 +32,7 @@ fn write_test() -> io::Result<()> {
         let file = File::create(&path)?;
         unsafe {
             let mut sq = io_uring.sq();
-            let mut sqe = sq.next_sqe().unwrap();
+            let mut sqe = sq.prepare_sqe().unwrap();
             sqe.prep_write_vectored(file.as_raw_fd(), &bufs, 0);
             sqe.set_user_data(0xDEADBEEF);
             io_uring.sq().submit()?;

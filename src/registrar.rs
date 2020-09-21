@@ -1,10 +1,10 @@
-use std::convert::TryInto;
+use std::fmt;
 use std::io;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 
-use super::IoUring;
+use crate::{IoUring, Probe, SQE, resultify};
 
 /// A `Registrar` creates ahead-of-time kernel references to files and user buffers.
 ///
@@ -17,7 +17,7 @@ use super::IoUring;
 /// sensitive code.
 ///
 /// If you want to register a file but don't have an open file descriptor yet, you can register
-/// a [placeholder](crate::RegisteredFd::placeholder) descriptor and
+/// a [placeholder](PLACEHOLDER_FD) descriptor and
 /// [update](crate::registrar::Registrar::update_registered_files) it later.
 /// ```
 /// # use iou::{IoUring, Registrar, RegisteredFd};
@@ -46,7 +46,7 @@ impl<'ring> Registrar<'ring> {
     pub fn register_buffers(&self, buffers: &[io::IoSlice<'_>]) -> io::Result<()> {
         let len = buffers.len();
         let addr = buffers.as_ptr() as *const _;
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_register_buffers(self.ring.as_ptr(), addr, len as _)
         })?;
         Ok(())
@@ -55,7 +55,7 @@ impl<'ring> Registrar<'ring> {
     /// Unregister all currently registered buffers. An explicit call to this method is often unecessary,
     /// because all buffers will be unregistered automatically when the ring is dropped.
     pub fn unregister_buffers(&self) -> io::Result<()> {
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_unregister_buffers(self.ring.as_ptr())
         })?;
         Ok(())
@@ -79,13 +79,14 @@ impl<'ring> Registrar<'ring> {
     /// # let bufs = &[std::io::IoSlice::new(b"hi")];
     /// let fileset: Vec<_> = registrar.register_files(&raw_fds)?.collect();
     /// let reg_file = fileset[0];
-    /// # let mut sqe = ring.next_sqe().unwrap();
+    /// # let mut sqe = ring.prepare_sqe().unwrap();
     /// unsafe { sqe.prep_write_vectored(reg_file, bufs, 0); }
     /// # Ok(())
     /// # }
     /// ```
     pub fn register_files<'a>(&mut self, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
-        let _: i32 = resultify!(unsafe {
+        assert!(files.len() <= u32::MAX as usize);
+        resultify(unsafe {
             uring_sys::io_uring_register_files(
                 self.ring.as_ptr(), 
                 files.as_ptr() as *const _, 
@@ -95,7 +96,7 @@ impl<'ring> Registrar<'ring> {
         Ok(files
             .iter()
             .enumerate()
-            .map(|(i, &fd)| RegisteredFd::new(i, fd))
+            .map(|(i, &fd)| RegisteredFd::new(i as u32, fd))
         )
     }
 
@@ -111,7 +112,8 @@ impl<'ring> Registrar<'ring> {
     /// * the inner [`io_uring_register_files_update`](uring_sys::io_uring_register_files_update) call
     ///   failed for another reason
     pub fn update_registered_files<'a>(&mut self, offset: usize, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
-        let _: i32 = resultify!(unsafe {
+        assert!(files.len() + offset <= u32::MAX as usize);
+        resultify(unsafe {
             uring_sys::io_uring_register_files_update(
                 self.ring.as_ptr(),
                 offset as _,
@@ -122,7 +124,7 @@ impl<'ring> Registrar<'ring> {
         Ok(files
             .iter()
             .enumerate()
-            .map(move |(i, &fd)| RegisteredFd::new(i + offset, fd))
+            .map(move |(i, &fd)| RegisteredFd::new((i + offset) as u32, fd))
         )
     }
 
@@ -154,23 +156,53 @@ impl<'ring> Registrar<'ring> {
     /// # }
     /// ```
     pub fn unregister_files(&mut self) -> io::Result<()> {
-        let _: i32 =
-            resultify!(unsafe { uring_sys::io_uring_unregister_files(self.ring.as_ptr()) })?;
+        resultify(unsafe { uring_sys::io_uring_unregister_files(self.ring.as_ptr()) })?;
         Ok(())
     }
 
     pub fn register_eventfd(&self, eventfd: RawFd) -> io::Result<()> {
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_register_eventfd(self.ring.as_ptr(), eventfd)
         })?;
         Ok(())
     }
 
+    pub fn register_eventfd_async(&self, eventfd: RawFd) -> io::Result<()> {
+        resultify(unsafe {
+            uring_sys::io_uring_register_eventfd_async(self.ring.as_ptr(), eventfd)
+        })?;
+        Ok(())
+    }
+
     pub fn unregister_eventfd(&self) -> io::Result<()> {
-        let _: i32 = resultify!(unsafe {
+        resultify(unsafe {
             uring_sys::io_uring_unregister_eventfd(self.ring.as_ptr())
         })?;
         Ok(())
+    }
+
+    pub fn register_personality(&self) -> io::Result<Personality> {
+        let id = resultify(unsafe { uring_sys::io_uring_register_personality(self.ring.as_ptr()) })?;
+        debug_assert!(id < u16::MAX as u32);
+        Ok(Personality { id: id as u16 })
+    }
+
+    pub fn unregister_personality(&self, personality: Personality) -> io::Result<()> {
+        resultify(unsafe {
+            uring_sys::io_uring_unregister_personality(self.ring.as_ptr(), personality.id as _)
+        })?;
+        Ok(())
+    }
+
+    pub fn probe(&self) -> io::Result<Probe> {
+        Probe::for_ring(self.ring.as_ptr())
+    }
+}
+
+impl fmt::Debug for Registrar<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let fd = unsafe { self.ring.as_ref().ring_fd };
+        f.debug_struct(std::any::type_name::<Self>()).field("fd", &fd).finish()
     }
 }
 
@@ -186,78 +218,77 @@ unsafe impl<'ring> Sync for Registrar<'ring> { }
 ///
 /// Submission event prep methods on `RegisteredFd` will ensure that the submission event's
 /// `SubmissionFlags::FIXED_FILE` flag is properly set.
-///
-/// # Panics
-/// In order to reserve kernel fileset space, `RegisteredFd`s can be placeholders.
-/// Placeholders can be interspersed with actual files. Attempted IO events on placeholders will panic.
 #[derive(Debug, Copy, Clone)]
-#[repr(transparent)]
 pub struct RegisteredFd {
-    index: RawFd,
+    index: u32,
+    fd: RawFd,
 }
 
 impl RegisteredFd {
-    pub(crate) fn new(index: usize, fd: RawFd) -> RegisteredFd {
-        if fd == -1 {
-            RegisteredFd::placeholder()
-        } else {
-            RegisteredFd {
-                index: index.try_into().unwrap(),
-            }
+    pub(crate) fn new(index: u32, fd: RawFd) -> RegisteredFd {
+        RegisteredFd {
+            index, fd,
         }
     }
 
-    /// Get a new `RegisteredFd` placeholder. Used to reserve kernel fileset entries.
-    pub fn placeholder() -> RegisteredFd {
-        RegisteredFd { index: -1 }
-    }
-
-    /// Returns this file's kernel fileset index as a raw file descriptor.
-    /// ```
-    /// # use iou::RegisteredFd;
-    /// let ph = RegisteredFd::placeholder();
-    /// assert_eq!(ph.as_fd(), -1);
-    /// ```
-    pub fn as_fd(self) -> RawFd {
+    pub fn index(&self) -> u32 {
         self.index
     }
 
-    /// Check whether this is a placeholder value.
-    pub fn is_placeholder(self) -> bool {
-        self.index == -1
+    pub fn raw_fd(&self) -> RawFd {
+        self.fd
+    }
+
+    pub fn is_placeholder(&self) -> bool {
+        self.fd == PLACEHOLDER_FD
     }
 }
 
-/// IoUring file handles.
-#[derive(Debug, Copy, Clone)]
-pub enum RingFd {
-    /// A raw file descriptor.
-    Raw(RawFd),
-    /// A member of the kernel's fixed fileset.
-    Registered(RegisteredFd),
+pub const PLACEHOLDER_FD: RawFd = -1;
+
+/// A file descriptor that can be used to prepare SQEs.
+///
+/// The standard library's [`RawFd`] type implements this trait, but so does [`RegisteredFd`], a
+/// type which is returned when a user pre-registers file descriptors with an io-uring instance.
+pub trait RingFd {
+    fn as_raw_fd(&self) -> RawFd;
+    fn update_sqe(&self, sqe: &mut SQE<'_>);
 }
 
-impl RingFd {
-    pub fn raw(self) -> RawFd {
-        match self {
-            RingFd::Raw(fd) => fd,
-            RingFd::Registered(index) => index.as_fd(),
-        }
+impl RingFd for RawFd {
+    fn as_raw_fd(&self) -> RawFd {
+        *self
+    }
+
+    fn update_sqe(&self, _: &mut SQE<'_>) { }
+}
+
+impl AsRawFd for RegisteredFd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+
+}
+
+impl RingFd for RegisteredFd {
+    fn as_raw_fd(&self) -> RawFd {
+        AsRawFd::as_raw_fd(self)
+    }
+
+    fn update_sqe(&self, sqe: &mut SQE<'_>) {
+        unsafe { sqe.raw_mut().fd = self.index as RawFd; }
+        sqe.set_fixed_file();
     }
 }
 
-impl From<RawFd> for RingFd {
-    fn from(item: RawFd) -> RingFd {
-        RingFd::Raw(item)
-    }
+#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
+pub struct Personality {
+    pub(crate) id: u16,
 }
 
-impl From<RegisteredFd> for RingFd {
-    fn from(item: RegisteredFd) -> RingFd {
-        if item.is_placeholder() {
-            panic!("attempted to perform IO on kernel fileset placeholder");
-        }
-        RingFd::Registered(item)
+impl From<u16> for Personality {
+    fn from(id: u16) -> Personality {
+        Personality { id }
     }
 }
 
@@ -279,17 +310,6 @@ mod tests {
     fn register_bad_fd() {
         let ring = IoUring::new(1).unwrap();
         let _ = ring.registrar().register_files(&[-100]).unwrap();
-    }
-
-    #[test]
-    #[should_panic(expected = "attempted to perform IO on kernel fileset placeholder")]
-    fn placeholder_submit() {
-        let mut ring = IoUring::new(1).unwrap();
-        let mut sqe = ring.next_sqe().unwrap();
-
-        unsafe {
-            sqe.prep_read_vectored(RegisteredFd::placeholder(), &mut [], 0);
-        }
     }
 
     #[test]

@@ -4,7 +4,7 @@ use std::{
     net::{TcpListener, TcpStream},
     os::unix::io::{AsRawFd, FromRawFd},
 };
-use iou::SockAddr;
+use iou::sqe::SockAddr;
 
 const MESSAGE: &'static [u8] = b"Hello World";
 
@@ -21,9 +21,9 @@ fn accept() -> io::Result<()> {
 
     let fd = listener.as_raw_fd();
     let mut sq = ring.sq();
-    let mut sqe = sq.next_sqe().expect("failed to get sqe");
+    let mut sqe = sq.prepare_sqe().expect("failed to get sqe");
     unsafe {
-        sqe.prep_accept(fd, None, iou::SockFlag::empty());
+        sqe.prep_accept(fd, None, iou::sqe::SockFlag::empty());
         sq.submit()?;
     }
     let cqe = ring.wait_for_cqe()?;
@@ -48,10 +48,10 @@ fn accept_with_params() -> io::Result<()> {
 
     let fd = listener.as_raw_fd();
     let mut sq = ring.sq();
-    let mut sqe = sq.next_sqe().expect("failed to get sqe");
-    let mut accept_params = iou::SockAddrStorage::uninit();
+    let mut sqe = sq.prepare_sqe().expect("failed to get sqe");
+    let mut accept_params = iou::sqe::SockAddrStorage::uninit();
     unsafe {
-        sqe.prep_accept(fd, Some(&mut accept_params), iou::SockFlag::empty());
+        sqe.prep_accept(fd, Some(&mut accept_params), iou::sqe::SockFlag::empty());
         sq.submit()?;
     }
     let cqe = ring.wait_for_cqe()?;

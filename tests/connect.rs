@@ -6,7 +6,7 @@ use std::{io, net::TcpListener};
 fn connect() -> io::Result<()> {
     let listener = TcpListener::bind(("0.0.0.0", 0))?;
     listener.set_nonblocking(true)?;
-    let listener_addr = iou::SockAddr::new_inet(InetAddr::from_std(&listener.local_addr()?));
+    let listener_addr = iou::sqe::SockAddr::new_inet(InetAddr::from_std(&listener.local_addr()?));
 
     let socket = nix::sys::socket::socket(
         AddressFamily::Inet,
@@ -17,7 +17,7 @@ fn connect() -> io::Result<()> {
         .map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to create socket"))?;
 
     let mut ring = iou::IoUring::new(1)?;
-    let mut sqe = ring.next_sqe().expect("failed to get sqe");
+    let mut sqe = ring.prepare_sqe().expect("failed to get sqe");
     unsafe {
         sqe.prep_connect(socket, &listener_addr);
         sqe.set_user_data(42);
