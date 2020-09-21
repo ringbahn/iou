@@ -34,14 +34,24 @@
 //! be prepared for the possibility that the completion represents a timeout and not a normal IO
 //! event (`CQE` has a method to check for this).
 
-mod cqe;
+/// Types related to completion queue events.
+pub mod cqe;
+/// Types related to submission queue events.
+///
+/// The most important types here are [`SQE`], which represents a single submission queue event,
+/// and [`SQEs`], which represents a sequence of events that can be prepared at once.
+///
+/// Many of the types in this module are re-exported from the `nix` crate, and are used when
+/// preparing [`SQE`]s associated with specific Linux system operations.
 pub mod sqe;
 
 mod completion_queue;
 mod submission_queue;
 
 mod probe;
-mod registrar;
+
+/// Types related to registration.
+pub mod registrar;
 
 use std::fmt;
 use std::io;
@@ -51,17 +61,19 @@ use std::ptr::{self, NonNull};
 use std::time::Duration;
 
 #[doc(inline)]
-pub use sqe::{SQE, SQEs, HardLinked, HardLinkedSQE, SubmissionFlags};
-pub use cqe::{CQE, CQEs, CQEsBlocking, CompletionFlags};
+pub use sqe::{SQE, SQEs};
+#[doc(inline)]
+pub use cqe::{CQE, CQEs, CQEsBlocking};
 
 pub use completion_queue::CompletionQueue;
 pub use submission_queue::SubmissionQueue;
 
 pub use probe::Probe;
-pub use registrar::{Registrar, RingFd, RegisteredFd, Personality, PLACEHOLDER_FD};
+#[doc(inline)]
+pub use registrar::{Registrar, Personality};
 
 bitflags::bitflags! {
-    /// `IoUring` initialization flags for advanced use cases.
+    /// [`IoUring`] initialization flags for advanced use cases.
     ///
     /// ```no_run
     /// # use std::io;
@@ -100,6 +112,7 @@ bitflags::bitflags! {
 }
 
 bitflags::bitflags! {
+    /// Advanced features that can be enabled when setting up an [`IoUring`] instance.
     pub struct SetupFeatures: u32 {
         const SINGLE_MMAP       = 1 << 0;
         const NODROP            = 1 << 1;

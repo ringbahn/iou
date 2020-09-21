@@ -1,6 +1,7 @@
 use std::io;
 use std::ptr::NonNull;
 
+/// A probe of the operations supported by this kernel version's io-uring interface.
 #[derive(Debug)]
 pub struct Probe {
     probe: NonNull<uring_sys::io_uring_probe>,

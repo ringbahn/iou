@@ -17,7 +17,7 @@ use crate::{IoUring, Probe, SQE, resultify};
 /// sensitive code.
 ///
 /// If you want to register a file but don't have an open file descriptor yet, you can register
-/// a [placeholder](crate::PLACEHOLDER_FD) descriptor and
+/// a [placeholder](PLACEHOLDER_FD) descriptor and
 /// [update](crate::registrar::Registrar::update_registered_files) it later.
 /// ```
 /// # use iou::{IoUring, Registrar, RegisteredFd};

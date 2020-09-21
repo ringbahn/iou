@@ -85,6 +85,9 @@ impl CQE {
 unsafe impl Send for CQE { }
 unsafe impl Sync for CQE { }
 
+/// An iterator of [`CQE`]s from the [`CompletionQueue`].
+///
+/// This iterator will be exhausted when there are no `CQE`s ready, and return `None`.
 pub struct CQEs<'a, 'b> {
     pub(crate) queue: &'b mut CompletionQueue<'a>,
     pub(crate) ready: u32,
@@ -106,6 +109,11 @@ impl Iterator for CQEs<'_, '_> {
     }
 }
 
+
+/// An iterator of [`CQE`]s from the [`CompletionQueue`].
+///
+/// This iterator will never be exhausted; if there are no `CQE`s ready, it will block until there
+/// are.
 pub struct CQEsBlocking<'a, 'b> {
     pub(crate) queue: &'b mut CompletionQueue<'a>,
     pub(crate) ready: u32,
@@ -129,6 +137,7 @@ impl Iterator for CQEsBlocking<'_, '_> {
 }
 
 bitflags::bitflags! {
+    /// Flags that can be returned from the kernel on [`CQE`]s.
     pub struct CompletionFlags: u32 {
         const BUFFER_SHIFT    = 1 << 0;
     }

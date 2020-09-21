@@ -6,7 +6,7 @@ use std::os::unix::io::RawFd;
 use std::ptr;
 use std::slice;
 
-use super::RingFd;
+use crate::registrar::RingFd;
 
 pub use nix::fcntl::{OFlag, FallocateFlags, PosixFadviseAdvice};
 pub use nix::poll::PollFlags;
@@ -31,6 +31,7 @@ impl<'a> SQE<'a> {
     }
 
     /// Get this event's user data.
+    #[inline]
     pub fn user_data(&self) -> u64 {
         self.sqe.user_data as u64
     }
@@ -68,6 +69,7 @@ impl<'a> SQE<'a> {
     }
 
     /// Get this event's flags.
+    #[inline]
     pub fn flags(&self) -> SubmissionFlags {
         unsafe { SubmissionFlags::from_bits_unchecked(self.sqe.flags as _) }
     }
@@ -84,14 +86,18 @@ impl<'a> SQE<'a> {
     }
 
     /// Set these flags for this event (any flags already set will still be set).
+    #[inline]
     pub fn set_flags(&mut self, flags: SubmissionFlags) {
         self.sqe.flags |= flags.bits();
     }
 
+    /// Set the [`Personality`] associated with this submission.
+    #[inline]
     pub fn set_personality(&mut self, personality: Personality) {
         self.sqe.buf_index.buf_index.personality = personality.id;
     }
 
+    /// Prepare a read on a file descriptor.
     #[inline]
     pub unsafe fn prep_read(
         &mut self,
@@ -105,6 +111,7 @@ impl<'a> SQE<'a> {
         fd.update_sqe(self);
     }
 
+    /// Prepare a vectored read on a file descriptor.
     #[inline]
     pub unsafe fn prep_read_vectored(
         &mut self,
@@ -118,6 +125,7 @@ impl<'a> SQE<'a> {
         fd.update_sqe(self);
     }
 
+    /// Prepare a read into a fixed, pre-registered buffer on a file descriptor.
     #[inline]
     pub unsafe fn prep_read_fixed(
         &mut self,
@@ -137,6 +145,7 @@ impl<'a> SQE<'a> {
         fd.update_sqe(self);
     }
 
+    /// Prepare a write on a file descriptor.
     #[inline]
     pub unsafe fn prep_write(
         &mut self,
@@ -150,6 +159,7 @@ impl<'a> SQE<'a> {
         fd.update_sqe(self);
     }
 
+    /// Prepare a vectored write on a file descriptor.
     #[inline]
     pub unsafe fn prep_write_vectored(
         &mut self,
@@ -167,6 +177,7 @@ impl<'a> SQE<'a> {
         fd.update_sqe(self);
     }
 
+    /// Prepare a write on a file descriptor from a fixed, pre-registered buffer.
     #[inline]
     pub unsafe fn prep_write_fixed(
         &mut self,
@@ -186,12 +197,15 @@ impl<'a> SQE<'a> {
         fd.update_sqe(self);
     }
 
+    /// Prepare an fsync on a file descriptor.
     #[inline]
     pub unsafe fn prep_fsync(&mut self, fd: impl RingFd, flags: FsyncFlags) {
         uring_sys::io_uring_prep_fsync(self.sqe, fd.as_raw_fd(), flags.bits() as _);
         fd.update_sqe(self);
     }
 
+    /// Prepare a splice, copying data from one file descriptor to another.
+    #[inline]
     pub unsafe fn prep_splice(
         &mut self,
         fd_in: RawFd,
@@ -204,6 +218,7 @@ impl<'a> SQE<'a> {
         uring_sys::io_uring_prep_splice(self.sqe, fd_in, off_in, fd_out, off_out, count, flags.bits());
     }
 
+    /// Prepare a recv event on a file descriptor.
     #[inline]
     pub unsafe fn prep_recv(&mut self, fd: impl RingFd, buf: &mut [u8], flags: MsgFlags) {
         let data = buf.as_mut_ptr() as *mut libc::c_void;
@@ -212,6 +227,7 @@ impl<'a> SQE<'a> {
         fd.update_sqe(self);
     }
 
+    /// Prepare a send event on a file descriptor.
     #[inline]
     pub unsafe fn prep_send(&mut self, fd: impl RingFd, buf: &[u8], flags: MsgFlags) {
         let data = buf.as_ptr() as *const libc::c_void as *mut libc::c_void;
@@ -221,7 +237,8 @@ impl<'a> SQE<'a> {
     }
 
     // TODO sendmsg and recvmsg
-    //
+
+    /// Prepare a fallocate event.
     #[inline]
     pub unsafe fn prep_fallocate(&mut self, fd: impl RingFd,
                                  offset: u64, size: u64,
@@ -233,6 +250,7 @@ impl<'a> SQE<'a> {
         fd.update_sqe(self);
     }
 
+    /// Prepare a statx event.
     #[inline]
     pub unsafe fn prep_statx(
         &mut self,
@@ -248,6 +266,7 @@ impl<'a> SQE<'a> {
         dirfd.update_sqe(self);
     }
 
+    /// Prepare an openat event.
     #[inline]
     pub unsafe fn prep_openat(
         &mut self,
@@ -262,6 +281,7 @@ impl<'a> SQE<'a> {
 
     // TODO openat2
 
+    /// Prepare a close event on a file descriptor.
     #[inline]
     pub unsafe fn prep_close(&mut self, fd: impl RingFd) {
         uring_sys::io_uring_prep_close(self.sqe, fd.as_raw_fd());
@@ -270,6 +290,7 @@ impl<'a> SQE<'a> {
 
 
     /// Prepare a timeout event.
+    ///
     /// ```
     /// # use iou::IoUring;
     /// # fn main() -> std::io::Result<()> {
@@ -282,27 +303,17 @@ impl<'a> SQE<'a> {
     ///     tv_nsec: 0 as _,
     /// };
     ///
-    /// unsafe { sqe.prep_timeout(&timeout_spec, 0); }
+    /// unsafe { sqe.prep_timeout(&timeout_spec, 0, TimeoutFlags::empty()); }
     ///
     /// ring.submit_sqes()?;
     /// # Ok(())
     /// # }
     ///```
     #[inline]
-    pub unsafe fn prep_timeout(&mut self, ts: &uring_sys::__kernel_timespec, events: u32) {
-        self.prep_timeout_with_flags(ts, events, TimeoutFlags::empty());
-    }
-
-    #[inline]
-    pub unsafe fn prep_timeout_with_flags(
-        &mut self,
-        ts: &uring_sys::__kernel_timespec,
-        count: u32,
-        flags: TimeoutFlags,
-    ) {
+    pub unsafe fn prep_timeout(&mut self, ts: &uring_sys::__kernel_timespec, events: u32, flags: TimeoutFlags) {
         uring_sys::io_uring_prep_timeout(self.sqe,
                                    ts as *const _ as *mut _,
-                                   count as _,
+                                   events as _,
                                    flags.bits() as _);
     }
 
@@ -596,6 +607,7 @@ bitflags::bitflags! {
     }
 }
 
+/// A sequence of [`SQE`]s from the [`SubmissionQueue`][crate::SubmissionQueue].
 pub struct SQEs<'ring> {
     sqes: slice::IterMut<'ring, uring_sys::io_uring_sqe>,
 }
@@ -641,6 +653,7 @@ impl<'ring> Iterator for SQEs<'ring> {
     }
 }
 
+/// An Iterator of [`SQE`]s which will be hard linked together.
 pub struct HardLinked<'ring, 'a> {
     sqes: &'a mut SQEs<'ring>,
 }
@@ -687,6 +700,7 @@ impl<'ring> Drop for HardLinkedSQE<'ring> {
     }
 }
 
+/// An Iterator of [`SQE`]s which will be soft linked together.
 pub struct SoftLinked<'ring, 'a> {
     sqes: &'a mut SQEs<'ring>,
 }

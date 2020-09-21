@@ -112,7 +112,7 @@ impl<'ring> SubmissionQueue<'ring> {
             if let Some(mut sqe) = self.prepare_sqe() {
                 sqe.clear();
                 unsafe {
-                    sqe.prep_timeout(&ts, 0);
+                    sqe.prep_timeout(&ts, 0, crate::sqe::TimeoutFlags::empty());
                     sqe.set_user_data(uring_sys::LIBURING_UDATA_TIMEOUT);
                     return resultify(uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
                 }
