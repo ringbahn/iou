@@ -617,6 +617,10 @@ impl<'ring> SQEs<'ring> {
         HardLinked { sqes: self }
     }
 
+    pub fn soft_linked(&mut self) -> SoftLinked<'ring, '_> {
+        SoftLinked { sqes: self }
+    }
+
     pub fn remaining(&self) -> u32 {
         self.sqes.len() as u32
     }
@@ -626,6 +630,14 @@ impl<'ring> SQEs<'ring> {
             unsafe { uring_sys::io_uring_prep_nop(sqe) }
             SQE { sqe }
         })
+    }
+}
+
+impl<'ring> Iterator for SQEs<'ring> {
+    type Item = SQE<'ring>;
+
+    fn next(&mut self) -> Option<SQE<'ring>> {
+        self.consume()
     }
 }
 
@@ -671,6 +683,52 @@ impl<'ring> Drop for HardLinkedSQE<'ring> {
     fn drop(&mut self) {
         if !self.is_final {
             self.sqe.set_flags(SubmissionFlags::IO_HARDLINK);
+        }
+    }
+}
+
+pub struct SoftLinked<'ring, 'a> {
+    sqes: &'a mut SQEs<'ring>,
+}
+
+impl<'ring> SoftLinked<'ring, '_> {
+    pub fn terminate(self) -> Option<SQE<'ring>> {
+        self.sqes.consume()
+    }
+}
+
+impl<'ring> Iterator for SoftLinked<'ring, '_> {
+    type Item = SoftLinkedSQE<'ring>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let is_final = self.sqes.remaining() == 1;
+        self.sqes.consume().map(|sqe| SoftLinkedSQE { sqe, is_final })
+    }
+}
+
+pub struct SoftLinkedSQE<'ring> {
+    sqe: SQE<'ring>,
+    is_final: bool,
+}
+
+impl<'ring> Deref for SoftLinkedSQE<'ring> {
+    type Target = SQE<'ring>;
+
+    fn deref(&self) -> &SQE<'ring> {
+        &self.sqe
+    }
+}
+
+impl<'ring> DerefMut for SoftLinkedSQE<'ring> {
+    fn deref_mut(&mut self) -> &mut SQE<'ring> {
+        &mut self.sqe
+    }
+}
+
+impl<'ring> Drop for SoftLinkedSQE<'ring> {
+    fn drop(&mut self) {
+        if !self.is_final {
+            self.sqe.set_flags(SubmissionFlags::IO_LINK);
         }
     }
 }
