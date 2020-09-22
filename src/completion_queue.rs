@@ -76,23 +76,16 @@ impl<'ring> CompletionQueue<'ring> {
     ///
     /// When there are no CQEs ready to process, the iterator will end. It will never
     /// block the thread to wait for CQEs to be completed.
-    pub fn cqes(&mut self) -> CQEs<'ring, '_> {
-        CQEs {
-            queue: self,
-            ready: 0,
-        }
+    pub fn cqes(&mut self) -> CQEs<'_> {
+        CQEs::new(self.ring)
     }
 
     /// Returns an iterator of ready CQEs, blocking when there are none ready.
     ///
     /// This iterator never ends. Whenever there are no CQEs ready, it will block
     /// the thread until at least `wait_for` CQEs are ready.
-    pub fn cqes_blocking(&mut self, wait_for: u32) -> CQEsBlocking<'ring, '_> {
-        CQEsBlocking {
-            queue: self,
-            ready: 0,
-            wait_for,
-        }
+    pub fn cqes_blocking(&mut self, wait_for: u32) -> CQEsBlocking<'_> {
+        CQEsBlocking::new(self.ring, wait_for)
     }
 
     pub fn ready(&self) -> u32 {

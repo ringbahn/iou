@@ -1,4 +1,4 @@
-use iou::{IoUring, RegisteredFd};
+use iou::{IoUring, registrar::RegisteredFd};
 use std::fs::File;
 use std::io::{IoSlice, Read};
 use std::os::unix::io::AsRawFd;
@@ -10,7 +10,7 @@ fn main() -> std::io::Result<()> {
     let mut ring = IoUring::new(2)?;
     let mut registrar = ring.registrar();
 
-    let reserve_files = [iou::PLACEHOLDER_FD; 1024];
+    let reserve_files = [iou::registrar::PLACEHOLDER_FD; 1024];
     let fileset: Vec<RegisteredFd> = registrar.register_files(&reserve_files)?.collect();
     assert!(fileset.iter().all(|fd| fd.is_placeholder()));
 

@@ -22,7 +22,7 @@ use super::{IoUring, SQE, SQEs, resultify};
 /// # use std::error::Error;
 /// # use std::fs::File;
 /// # use std::os::unix::io::{AsRawFd, RawFd};
-/// # use iou::{IoUring, SubmissionFlags};
+/// # use iou::{IoUring, sqe::SubmissionFlags};
 /// #
 /// # fn main() -> Result<(), Box<dyn Error>> {
 /// # let mut ring = IoUring::new(2)?;

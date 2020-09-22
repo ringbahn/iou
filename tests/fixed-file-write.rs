@@ -1,4 +1,4 @@
-use iou::{IoUring, RegisteredFd, Registrar};
+use iou::{IoUring, registrar::RegisteredFd, Registrar};
 use std::fs::{self, File};
 use std::io::{IoSlice, Read};
 use std::os::unix::io::AsRawFd;
