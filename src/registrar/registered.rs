@@ -1,3 +1,4 @@
+use std::io;
 use std::ops::*;
 use std::os::unix::io::{AsRawFd, RawFd};
 
@@ -234,6 +235,45 @@ impl UringReadBuf for &'_ mut [u8] {
     }
 }
 
+impl UringReadBuf for io::IoSliceMut<'_> {
+    unsafe fn prep_read(mut self, fd: impl UringFd, sqe: &mut SQE<'_>, offset: u64) {
+        uring_sys::io_uring_prep_read(
+            sqe.raw_mut(),
+            fd.as_raw_fd(),
+            self.as_mut_ptr() as _,
+            self.len() as _,
+            offset as _,
+        );
+        fd.update_sqe(sqe);
+    }
+}
+
+impl UringReadBuf for &'_ mut [&'_ mut [u8]] {
+    unsafe fn prep_read(self, fd: impl UringFd, sqe: &mut SQE<'_>, offset: u64) {
+        uring_sys::io_uring_prep_readv(
+            sqe.raw_mut(),
+            fd.as_raw_fd(),
+            self.as_mut_ptr() as _,
+            self.len() as _,
+            offset as _,
+        );
+        fd.update_sqe(sqe);
+    }
+}
+
+impl UringReadBuf for &'_ mut [io::IoSliceMut<'_>] {
+    unsafe fn prep_read(self, fd: impl UringFd, sqe: &mut SQE<'_>, offset: u64) {
+        uring_sys::io_uring_prep_readv(
+            sqe.raw_mut(),
+            fd.as_raw_fd(),
+            self.as_mut_ptr() as _,
+            self.len() as _,
+            offset as _,
+        );
+        fd.update_sqe(sqe);
+    }
+}
+
 impl UringWriteBuf for RegisteredBufRef<'_> {
     unsafe fn prep_write(self, fd: impl UringFd, sqe: &mut SQE<'_>, offset: u64) {
         uring_sys::io_uring_prep_write_fixed(
@@ -251,6 +291,45 @@ impl UringWriteBuf for RegisteredBufRef<'_> {
 impl UringWriteBuf for &'_ [u8] {
     unsafe fn prep_write(self, fd: impl UringFd, sqe: &mut SQE<'_>, offset: u64) {
         uring_sys::io_uring_prep_write(
+            sqe.raw_mut(),
+            fd.as_raw_fd(),
+            self.as_ptr() as _,
+            self.len() as _,
+            offset as _,
+        );
+        fd.update_sqe(sqe);
+    }
+}
+
+impl UringWriteBuf for io::IoSlice<'_> {
+    unsafe fn prep_write(self, fd: impl UringFd, sqe: &mut SQE<'_>, offset: u64) {
+        uring_sys::io_uring_prep_write(
+            sqe.raw_mut(),
+            fd.as_raw_fd(),
+            self.as_ptr() as _,
+            self.len() as _,
+            offset as _,
+        );
+        fd.update_sqe(sqe);
+    }
+}
+
+impl UringWriteBuf for &'_ [io::IoSlice<'_>] {
+    unsafe fn prep_write(self, fd: impl UringFd, sqe: &mut SQE<'_>, offset: u64) {
+        uring_sys::io_uring_prep_writev(
+            sqe.raw_mut(),
+            fd.as_raw_fd(),
+            self.as_ptr() as _,
+            self.len() as _,
+            offset as _,
+        );
+        fd.update_sqe(sqe);
+    }
+}
+
+impl UringWriteBuf for &'_ [&'_ [u8]] {
+    unsafe fn prep_write(self, fd: impl UringFd, sqe: &mut SQE<'_>, offset: u64) {
+        uring_sys::io_uring_prep_writev(
             sqe.raw_mut(),
             fd.as_raw_fd(),
             self.as_ptr() as _,
