@@ -72,7 +72,7 @@ impl<'ring> Registrar<'ring> {
         )
     }
 
-    pub fn register_buffers_by_ref<'a>(&self, buffers: &'a [io::IoSlice<'a>])
+    pub fn register_buffers_by_ref<'a>(&self, buffers: &'a [&'a [u8]])
         -> io::Result<impl Iterator<Item = RegisteredBufRef<'a>> + 'a>
     {
         let len = buffers.len();
@@ -87,7 +87,7 @@ impl<'ring> Registrar<'ring> {
         )
     }
 
-    pub fn register_buffers_by_mut<'a>(&self, buffers: &'a mut [io::IoSliceMut<'a>])
+    pub fn register_buffers_by_mut<'a>(&self, buffers: &'a mut [&'a mut [u8]])
         -> io::Result<impl Iterator<Item = RegisteredBufMut<'a>> + 'a>
     {
         let len = buffers.len();
