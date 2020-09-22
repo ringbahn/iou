@@ -220,32 +220,44 @@ impl IoUring {
         Probe::for_ring(&mut self.ring)
     }
 
+    /// Returns the next [`SQE`] which can be prepared to submit.
     pub fn prepare_sqe(&mut self) -> Option<SQE<'_>> {
         unsafe {
             submission_queue::prepare_sqe(&mut self.ring)
         }
     }
 
+    /// Returns the next `count` [`SQE`]s which can be prepared to submit as an iterator.
+    ///
+    /// See the [`SQEs`] type for more information about how these multiple SQEs can be used.
     pub fn prepare_sqes(&mut self, count: u32) -> Option<SQEs<'_>> {
         unsafe {
             submission_queue::prepare_sqes(&mut self.ring.sq, count)
         }
     }
 
+    /// Submit all prepared [`SQE`]s to the kernel.
     pub fn submit_sqes(&mut self) -> io::Result<u32> {
         self.sq().submit()
     }
 
+    /// Submit all prepared [`SQE`]s to the kernel and wait until at least `wait_for` events have
+    /// completed.
     pub fn submit_sqes_and_wait(&mut self, wait_for: u32) -> io::Result<u32> {
         self.sq().submit_and_wait(wait_for)
     }
 
+
+    /// Submit all prepared [`SQE`]s to the kernel and wait until at least `wait_for` events have
+    /// completed or `duration` has passed.
     pub fn submit_sqes_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
         -> io::Result<u32>
     {
         self.sq().submit_and_wait_with_timeout(wait_for, duration)
     }
 
+    /// Peek for any [`CQE`] that is already completed, without blocking. This will consume that
+    /// CQE.
     pub fn peek_for_cqe(&mut self) -> Option<CQE> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
@@ -259,11 +271,13 @@ impl IoUring {
         }
     }
 
+    /// Block until at least one [`CQE`] is completed. This will consume that CQE.
     pub fn wait_for_cqe(&mut self) -> io::Result<CQE> {
         let ring = NonNull::from(&self.ring);
         self.inner_wait_for_cqes(1, ptr::null()).map(|cqe| CQE::new(ring, cqe))
     }
 
+    /// Block until a [`CQE`] is ready or timeout.
     pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
         -> io::Result<CQE>
     {
@@ -276,27 +290,23 @@ impl IoUring {
         self.inner_wait_for_cqes(1, &ts).map(|cqe| CQE::new(ring, cqe))
     }
 
+    /// Returns an iterator of [`CQE`]s which are ready from the kernel.
     pub fn cqes(&mut self) -> CQEs<'_> {
         CQEs::new(NonNull::from(&mut self.ring))
     }
 
+    /// Returns an iterator of [`CQE`]s which will block when there are no CQEs ready. It will
+    /// block until at least `count` are ready, and then continue iterating.
+    ///
+    /// This iterator will never be exhausted; every time it runs out of CQEs it will block the
+    /// thread and wait for more to be ready.
     pub fn cqes_blocking(&mut self, count: u32) -> CQEsBlocking<'_> {
         CQEsBlocking::new(NonNull::from(&mut self.ring), count)
     }
 
-    pub fn block_for_cqes(&mut self, count: u32) -> io::Result<()> {
+    /// Wait until `count` [`CQE`]s are ready, without submitting any events.
+    pub fn wait_for_cqes(&mut self, count: u32) -> io::Result<()> {
         self.inner_wait_for_cqes(count as _, ptr::null()).map(|_| ())
-    }
-
-    pub fn block_for_cqes_with_timeout(&mut self, count: u32, duration: Duration)
-        -> io::Result<()>
-    {
-        let ts = uring_sys::__kernel_timespec {
-            tv_sec: duration.as_secs() as _,
-            tv_nsec: duration.subsec_nanos() as _
-        };
-
-        self.inner_wait_for_cqes(count as _, &ts).map(|_| ())
     }
 
     fn inner_wait_for_cqes(&mut self, count: u32, ts: *const uring_sys::__kernel_timespec)
