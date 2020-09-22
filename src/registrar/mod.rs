@@ -9,7 +9,7 @@
 /// pre-registered resources. By passing a [`RegisteredFd`] or the correct type of registered
 /// buffer to an [`SQE`][crate::SQE]'s prep methods, the SQE will be properly prepared to use the
 /// pre-registered object.
-pub mod registered;
+mod registered;
 
 use std::fmt;
 use std::io;
