@@ -1,14 +1,14 @@
-/// Types related to registration and registered resources.
-///
-/// The [`Registrar`] type can be used to register resources with the kernel that will be used with
-/// a particular [`IoUring`] instance. This can improve performance by avoiding the kernel from
-/// reallocating resources for each IO events performed against those resources.
-///
-/// When file descriptors and buffers are registered with the kernel, an iterator of the type-safe
-/// [`Registered`] wrapper is returned. This wrapper makes it easier to correctly use
-/// pre-registered resources. By passing a [`RegisteredFd`] or the correct type of registered
-/// buffer to an [`SQE`][crate::SQE]'s prep methods, the SQE will be properly prepared to use the
-/// pre-registered object.
+//! Types related to registration and registered resources.
+//!
+//! The [`Registrar`] type can be used to register resources with the kernel that will be used with
+//! a particular [`IoUring`] instance. This can improve performance by avoiding the kernel from
+//! reallocating resources for each IO events performed against those resources.
+//!
+//! When file descriptors and buffers are registered with the kernel, an iterator of the type-safe
+//! [`Registered`] wrapper is returned. This wrapper makes it easier to correctly use
+//! pre-registered resources. By passing a [`RegisteredFd`] or the correct type of registered
+//! buffer to an [`SQE`][crate::SQE]'s prep methods, the SQE will be properly prepared to use the
+//! pre-registered object.
 mod registered;
 
 use std::fmt;
