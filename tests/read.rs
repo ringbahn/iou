@@ -105,3 +105,39 @@ fn read_registered_buf() -> io::Result<()> {
     assert_eq!(&TEXT[..n], &buf.slice_to(n)[..]);
     Ok(())
 }
+
+#[test]
+fn read_registered_fd_and_buf() -> io::Result<()> {
+    use iou::registrar::*;
+
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("props");
+    path.push("text.txt");
+
+    let mut io_uring = iou::IoUring::new(32)?;
+    let bufs = vec![Box::new([0u8; 4096]) as Box<[u8]>];
+    let file = File::open(&path)?;
+
+    let mut buf: RegisteredBuf = io_uring.registrar().register_buffers(bufs)?.next().unwrap();
+    let fd: RegisteredFd = io_uring.registrar().register_files(&[file.as_raw_fd()])?.next().unwrap();
+
+    unsafe {
+        let mut sq = io_uring.sq();
+        let mut sqe = sq.prepare_sqe().unwrap();
+        sqe.prep_read(fd, buf.as_mut(), 0);
+        sqe.set_user_data(0xDEADBEEF);
+        assert!(sqe.raw().opcode == uring_sys::IoRingOp::IORING_OP_READ_FIXED as u8);
+        assert!(sqe.flags().contains(iou::sqe::SubmissionFlags::FIXED_FILE));
+        sq.submit()?;
+    }
+
+    let n = {
+        let mut cq = io_uring.cq();
+        let cqe = cq.wait_for_cqe()?;
+        assert_eq!(cqe.user_data(), 0xDEADBEEF);
+        cqe.result()? as usize
+    };
+
+    assert_eq!(&TEXT[..n], &buf.slice_to(n)[..]);
+    Ok(())
+}

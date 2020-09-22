@@ -110,6 +110,7 @@ fn write_registered_buf() -> io::Result<()> {
             let mut sq = io_uring.sq();
             let mut sqe = sq.prepare_sqe().unwrap();
             sqe.prep_write(file.as_raw_fd(), buf.slice_to(TEXT.len()), 0);
+            assert!(sqe.raw().opcode == uring_sys::IoRingOp::IORING_OP_WRITE_FIXED as u8);
             sqe.set_user_data(0xDEADBEEF);
             io_uring.sq().submit()?;
         }
