@@ -331,7 +331,7 @@ impl IoUring {
         &self.ring
     }
 
-    pub fn raw_mut(&mut self) -> &mut uring_sys::io_uring {
+    pub unsafe fn raw_mut(&mut self) -> &mut uring_sys::io_uring {
         &mut self.ring
     }
 
