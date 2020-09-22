@@ -50,7 +50,6 @@ mod submission_queue;
 
 mod probe;
 
-/// Types related to registration.
 pub mod registrar;
 
 use std::fmt;

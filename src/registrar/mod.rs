@@ -1,10 +1,25 @@
+/// Types related to registration and registered resources.
+///
+/// The [`Registrar`] type can be used to register resources with the kernel that will be used with
+/// a particular [`IoUring`] instance. This can improve performance by avoiding the kernel from
+/// reallocating resources for each IO events performed against those resources.
+///
+/// When file descriptors and buffers are registered with the kernel, an iterator of the type-safe
+/// [`Registered`] wrapper is returned. This wrapper makes it easier to correctly use
+/// pre-registered resources. By passing a [`RegisteredFd`] or the correct type of registered
+/// buffer to an [`SQE`][crate::SQE]'s prep methods, the SQE will be properly prepared to use the
+/// pre-registered object.
+pub mod registered;
+
 use std::fmt;
 use std::io;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::RawFd;
 
-use crate::{IoUring, Probe, SQE, resultify};
+use crate::{IoUring, Probe, resultify};
+
+pub use registered::*;
 
 /// A `Registrar` creates ahead-of-time kernel references to files and user buffers.
 ///
@@ -42,14 +57,49 @@ impl<'ring> Registrar<'ring> {
         }
     }
 
-    /// Register a set of buffers to be mapped into the kernel.
-    pub fn register_buffers(&self, buffers: &[io::IoSlice<'_>]) -> io::Result<()> {
+    pub fn register_buffers(&self, buffers: Vec<Box<[u8]>>)
+        -> io::Result<impl Iterator<Item = RegisteredBuf>>
+    {
         let len = buffers.len();
         let addr = buffers.as_ptr() as *const _;
         resultify(unsafe {
             uring_sys::io_uring_register_buffers(self.ring.as_ptr(), addr, len as _)
         })?;
-        Ok(())
+        Ok(buffers
+            .into_iter()
+            .enumerate()
+            .map(|(i, buf)| RegisteredBuf::new(i as u32, buf))
+        )
+    }
+
+    pub fn register_buffers_by_ref<'a>(&self, buffers: &'a [io::IoSlice<'a>])
+        -> io::Result<impl Iterator<Item = RegisteredBufRef<'a>> + 'a>
+    {
+        let len = buffers.len();
+        let addr = buffers.as_ptr() as *const _;
+        resultify(unsafe {
+            uring_sys::io_uring_register_buffers(self.ring.as_ptr(), addr, len as _)
+        })?;
+        Ok(buffers
+            .iter()
+            .enumerate()
+            .map(|(i, buf)| Registered::new(i as u32, &**buf))
+        )
+    }
+
+    pub fn register_buffers_by_mut<'a>(&self, buffers: &'a mut [io::IoSliceMut<'a>])
+        -> io::Result<impl Iterator<Item = RegisteredBufMut<'a>> + 'a>
+    {
+        let len = buffers.len();
+        let addr = buffers.as_ptr() as *const _;
+        resultify(unsafe {
+            uring_sys::io_uring_register_buffers(self.ring.as_ptr(), addr, len as _)
+        })?;
+        Ok(buffers
+            .iter_mut()
+            .enumerate()
+            .map(|(i, buf)| Registered::new(i as u32, &mut **buf))
+        )
     }
 
     /// Unregister all currently registered buffers. An explicit call to this method is often unecessary,
@@ -208,78 +258,6 @@ impl fmt::Debug for Registrar<'_> {
 
 unsafe impl<'ring> Send for Registrar<'ring> { }
 unsafe impl<'ring> Sync for Registrar<'ring> { }
-
-/// A member of the kernel's registered fileset.
-///
-/// Valid `RegisteredFd`s can only be obtained through a [`Registrar`](crate::registrar::Registrar).
-///
-/// Registered files handle kernel fileset indexing behind the scenes and can often be used in place
-/// of raw file descriptors. Not all IO operations support registered files.
-///
-/// Submission event prep methods on `RegisteredFd` will ensure that the submission event's
-/// `SubmissionFlags::FIXED_FILE` flag is properly set.
-#[derive(Debug, Copy, Clone)]
-pub struct RegisteredFd {
-    index: u32,
-    fd: RawFd,
-}
-
-impl RegisteredFd {
-    pub(crate) fn new(index: u32, fd: RawFd) -> RegisteredFd {
-        RegisteredFd {
-            index, fd,
-        }
-    }
-
-    pub fn index(&self) -> u32 {
-        self.index
-    }
-
-    pub fn raw_fd(&self) -> RawFd {
-        self.fd
-    }
-
-    pub fn is_placeholder(&self) -> bool {
-        self.fd == PLACEHOLDER_FD
-    }
-}
-
-pub const PLACEHOLDER_FD: RawFd = -1;
-
-/// A file descriptor that can be used to prepare SQEs.
-///
-/// The standard library's [`RawFd`] type implements this trait, but so does [`RegisteredFd`], a
-/// type which is returned when a user pre-registers file descriptors with an io-uring instance.
-pub trait RingFd {
-    fn as_raw_fd(&self) -> RawFd;
-    fn update_sqe(&self, sqe: &mut SQE<'_>);
-}
-
-impl RingFd for RawFd {
-    fn as_raw_fd(&self) -> RawFd {
-        *self
-    }
-
-    fn update_sqe(&self, _: &mut SQE<'_>) { }
-}
-
-impl AsRawFd for RegisteredFd {
-    fn as_raw_fd(&self) -> RawFd {
-        self.fd
-    }
-
-}
-
-impl RingFd for RegisteredFd {
-    fn as_raw_fd(&self) -> RawFd {
-        AsRawFd::as_raw_fd(self)
-    }
-
-    fn update_sqe(&self, sqe: &mut SQE<'_>) {
-        unsafe { sqe.raw_mut().fd = self.index as RawFd; }
-        sqe.set_fixed_file();
-    }
-}
 
 #[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
 pub struct Personality {

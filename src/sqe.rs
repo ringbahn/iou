@@ -6,7 +6,7 @@ use std::os::unix::io::RawFd;
 use std::ptr;
 use std::slice;
 
-use crate::registrar::RingFd;
+use crate::registrar::{UringFd, UringReadBuf, UringWriteBuf};
 
 pub use nix::fcntl::{OFlag, FallocateFlags, PosixFadviseAdvice};
 pub use nix::poll::PollFlags;
@@ -98,24 +98,24 @@ impl<'a> SQE<'a> {
     }
 
     /// Prepare a read on a file descriptor.
+    ///
+    /// Both the file descriptor and the buffer can be pre-registered. See the
+    /// [`registrar][crate::registrar] module for more information.
     #[inline]
     pub unsafe fn prep_read(
         &mut self,
-        fd: impl RingFd,
-        buf: &mut [u8],
+        fd: impl UringFd,
+        buf: impl UringReadBuf,
         offset: u64,
     ) {
-        let len = buf.len();
-        let addr = buf.as_mut_ptr();
-        uring_sys::io_uring_prep_read(self.sqe, fd.as_raw_fd(), addr as _, len as _, offset as _);
-        fd.update_sqe(self);
+        buf.prep_read(fd, self, offset);
     }
 
     /// Prepare a vectored read on a file descriptor.
     #[inline]
     pub unsafe fn prep_read_vectored(
         &mut self,
-        fd: impl RingFd,
+        fd: impl UringFd,
         bufs: &mut [io::IoSliceMut<'_>],
         offset: u64,
     ) {
@@ -129,7 +129,7 @@ impl<'a> SQE<'a> {
     #[inline]
     pub unsafe fn prep_read_fixed(
         &mut self,
-        fd: impl RingFd,
+        fd: impl UringFd,
         buf: &mut [u8],
         offset: u64,
         buf_index: u32,
@@ -146,24 +146,24 @@ impl<'a> SQE<'a> {
     }
 
     /// Prepare a write on a file descriptor.
+    ///
+    /// Both the file descriptor and the buffer can be pre-registered. See the
+    /// [`registrar][crate::registrar] module for more information.
     #[inline]
     pub unsafe fn prep_write(
         &mut self,
-        fd: impl RingFd,
-        buf: &[u8],
+        fd: impl UringFd,
+        buf: impl UringWriteBuf,
         offset: u64,
     ) {
-        let len = buf.len();
-        let addr = buf.as_ptr();
-        uring_sys::io_uring_prep_write(self.sqe, fd.as_raw_fd(), addr as _, len as _, offset as _);
-        fd.update_sqe(self);
+        buf.prep_write(fd, self, offset)
     }
 
     /// Prepare a vectored write on a file descriptor.
     #[inline]
     pub unsafe fn prep_write_vectored(
         &mut self,
-        fd: impl RingFd,
+        fd: impl UringFd,
         bufs: &[io::IoSlice<'_>],
         offset: u64,
     ) {
@@ -181,7 +181,7 @@ impl<'a> SQE<'a> {
     #[inline]
     pub unsafe fn prep_write_fixed(
         &mut self,
-        fd: impl RingFd,
+        fd: impl UringFd,
         buf: &[u8],
         offset: u64,
         buf_index: usize,
@@ -199,7 +199,7 @@ impl<'a> SQE<'a> {
 
     /// Prepare an fsync on a file descriptor.
     #[inline]
-    pub unsafe fn prep_fsync(&mut self, fd: impl RingFd, flags: FsyncFlags) {
+    pub unsafe fn prep_fsync(&mut self, fd: impl UringFd, flags: FsyncFlags) {
         uring_sys::io_uring_prep_fsync(self.sqe, fd.as_raw_fd(), flags.bits() as _);
         fd.update_sqe(self);
     }
@@ -220,7 +220,7 @@ impl<'a> SQE<'a> {
 
     /// Prepare a recv event on a file descriptor.
     #[inline]
-    pub unsafe fn prep_recv(&mut self, fd: impl RingFd, buf: &mut [u8], flags: MsgFlags) {
+    pub unsafe fn prep_recv(&mut self, fd: impl UringFd, buf: &mut [u8], flags: MsgFlags) {
         let data = buf.as_mut_ptr() as *mut libc::c_void;
         let len = buf.len();
         uring_sys::io_uring_prep_send(self.sqe, fd.as_raw_fd(), data, len, flags.bits());
@@ -229,7 +229,7 @@ impl<'a> SQE<'a> {
 
     /// Prepare a send event on a file descriptor.
     #[inline]
-    pub unsafe fn prep_send(&mut self, fd: impl RingFd, buf: &[u8], flags: MsgFlags) {
+    pub unsafe fn prep_send(&mut self, fd: impl UringFd, buf: &[u8], flags: MsgFlags) {
         let data = buf.as_ptr() as *const libc::c_void as *mut libc::c_void;
         let len = buf.len();
         uring_sys::io_uring_prep_send(self.sqe, fd.as_raw_fd(), data, len, flags.bits());
@@ -240,7 +240,7 @@ impl<'a> SQE<'a> {
 
     /// Prepare a fallocate event.
     #[inline]
-    pub unsafe fn prep_fallocate(&mut self, fd: impl RingFd,
+    pub unsafe fn prep_fallocate(&mut self, fd: impl UringFd,
                                  offset: u64, size: u64,
                                  flags: FallocateFlags) {
         uring_sys::io_uring_prep_fallocate(self.sqe, fd.as_raw_fd(),
@@ -254,7 +254,7 @@ impl<'a> SQE<'a> {
     #[inline]
     pub unsafe fn prep_statx(
         &mut self,
-        dirfd: impl RingFd,
+        dirfd: impl UringFd,
         path: &CStr,
         flags: StatxFlags,
         mask: StatxMode,
@@ -270,7 +270,7 @@ impl<'a> SQE<'a> {
     #[inline]
     pub unsafe fn prep_openat(
         &mut self,
-        fd: impl RingFd,
+        fd: impl UringFd,
         path: &CStr,
         flags: OFlag,
         mode: Mode,
@@ -283,7 +283,7 @@ impl<'a> SQE<'a> {
 
     /// Prepare a close event on a file descriptor.
     #[inline]
-    pub unsafe fn prep_close(&mut self, fd: impl RingFd) {
+    pub unsafe fn prep_close(&mut self, fd: impl UringFd) {
         uring_sys::io_uring_prep_close(self.sqe, fd.as_raw_fd());
         fd.update_sqe(self);
     }
@@ -329,7 +329,7 @@ impl<'a> SQE<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_poll_add(&mut self, fd: impl RingFd, poll_flags: PollFlags) {
+    pub unsafe fn prep_poll_add(&mut self, fd: impl UringFd, poll_flags: PollFlags) {
         uring_sys::io_uring_prep_poll_add(self.sqe, fd.as_raw_fd(), poll_flags.bits());
         fd.update_sqe(self);
     }
@@ -340,14 +340,14 @@ impl<'a> SQE<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_connect(&mut self, fd: impl RingFd, socket_addr: &SockAddr) {
+    pub unsafe fn prep_connect(&mut self, fd: impl UringFd, socket_addr: &SockAddr) {
         let (addr, len) = socket_addr.as_ffi_pair();
         uring_sys::io_uring_prep_connect(self.sqe, fd.as_raw_fd(), addr as *const _ as *mut _, len);
         fd.update_sqe(self);
     }
 
     #[inline]
-    pub unsafe fn prep_accept(&mut self, fd: impl RingFd, accept: Option<&mut SockAddrStorage>, flags: SockFlag) {
+    pub unsafe fn prep_accept(&mut self, fd: impl UringFd, accept: Option<&mut SockAddrStorage>, flags: SockFlag) {
         let (addr, len) = match accept {
             Some(accept) => (accept.storage.as_mut_ptr() as *mut _, &mut accept.len as *mut _ as *mut _),
             None => (std::ptr::null_mut(), std::ptr::null_mut())
@@ -357,7 +357,7 @@ impl<'a> SQE<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_fadvise(&mut self, fd: impl RingFd, off: u64, len: u64, advice: PosixFadviseAdvice) {
+    pub unsafe fn prep_fadvise(&mut self, fd: impl UringFd, off: u64, len: u64, advice: PosixFadviseAdvice) {
         use PosixFadviseAdvice::*;
         let advice = match advice {
             POSIX_FADV_NORMAL       => libc::POSIX_FADV_NORMAL,
