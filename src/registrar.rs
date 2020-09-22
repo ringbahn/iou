@@ -20,7 +20,7 @@ use crate::{IoUring, Probe, SQE, resultify};
 /// a [placeholder](PLACEHOLDER_FD) descriptor and
 /// [update](crate::registrar::Registrar::update_registered_files) it later.
 /// ```
-/// # use iou::{IoUring, Registrar, RegisteredFd};
+/// # use iou::{IoUring, Registrar, registrar::RegisteredFd};
 /// # fn main() -> std::io::Result<()> {
 /// let mut ring = IoUring::new(8)?;
 /// let mut registrar: Registrar = ring.registrar();

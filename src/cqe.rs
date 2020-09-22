@@ -1,7 +1,9 @@
 use std::io;
-use std::ptr::NonNull;
+use std::marker::PhantomData;
+use std::mem::MaybeUninit;
+use std::ptr::{self, NonNull};
 
-use super::{CompletionQueue, resultify};
+use super::{IoUring, resultify};
 
 /// A completed IO event.
 pub struct CQE {
@@ -51,7 +53,7 @@ impl CQE {
     /// # let mut cq_event;
     /// cq_event = ring.wait_for_cqe()?;
     /// # // rewrite to be a fake timeout
-    /// # let flags = iou::CompletionFlags::empty();
+    /// # let flags = iou::cqe::CompletionFlags::empty();
     /// # let cq_event = CQE::from_raw_parts(uring_sys::LIBURING_UDATA_TIMEOUT, 0, flags);
     /// assert!(cq_event.is_iou_timeout());
     /// # Ok(())
@@ -88,24 +90,49 @@ unsafe impl Sync for CQE { }
 /// An iterator of [`CQE`]s from the [`CompletionQueue`].
 ///
 /// This iterator will be exhausted when there are no `CQE`s ready, and return `None`.
-pub struct CQEs<'a, 'b> {
-    pub(crate) queue: &'b mut CompletionQueue<'a>,
-    pub(crate) ready: u32,
+pub struct CQEs<'a> {
+    ring: NonNull<uring_sys::io_uring>,
+    ready: u32,
+    marker: PhantomData<&'a mut IoUring>,
 }
 
-impl Iterator for CQEs<'_, '_> {
+impl<'a> CQEs<'a> {
+    pub(crate) fn new(ring: NonNull<uring_sys::io_uring>) -> CQEs<'a> {
+        CQEs { ring, ready: 0, marker: PhantomData }
+    }
+
+    #[inline(always)]
+    fn ready(&self) -> u32 {
+        unsafe { uring_sys::io_uring_cq_ready(self.ring.as_ptr()) }
+    }
+
+    #[inline(always)]
+    fn peek_for_cqe(&mut self) -> Option<CQE> {
+        unsafe {
+            let mut cqe = MaybeUninit::uninit();
+            let count = uring_sys::io_uring_peek_batch_cqe(self.ring.as_ptr(), cqe.as_mut_ptr(), 1);
+            if count > 0 {
+                Some(CQE::new(self.ring, &mut *cqe.assume_init()))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+impl Iterator for CQEs<'_> {
     type Item = CQE;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.ready == 0 {
-            self.ready = self.queue.ready();
+            self.ready = self.ready();
             if self.ready == 0 {
                 return None;
             }
         }
 
         self.ready -= 1;
-        self.queue.peek_for_cqe()
+        self.peek_for_cqe()
     }
 }
 
@@ -114,25 +141,68 @@ impl Iterator for CQEs<'_, '_> {
 ///
 /// This iterator will never be exhausted; if there are no `CQE`s ready, it will block until there
 /// are.
-pub struct CQEsBlocking<'a, 'b> {
-    pub(crate) queue: &'b mut CompletionQueue<'a>,
-    pub(crate) ready: u32,
-    pub(crate) wait_for: u32,
+pub struct CQEsBlocking<'a> {
+    ring: NonNull<uring_sys::io_uring>,
+    ready: u32,
+    wait_for: u32,
+    marker: PhantomData<&'a mut IoUring>,
 }
 
-impl Iterator for CQEsBlocking<'_, '_> {
+impl<'a> CQEsBlocking<'a> {
+    pub(crate) fn new(ring: NonNull<uring_sys::io_uring>, wait_for: u32) -> CQEsBlocking<'a> {
+        CQEsBlocking { ring, ready: 0, wait_for, marker: PhantomData }
+    }
+
+    #[inline(always)]
+    fn ready(&self) -> u32 {
+        unsafe { uring_sys::io_uring_cq_ready(self.ring.as_ptr()) }
+    }
+
+    #[inline(always)]
+    fn peek_for_cqe(&mut self) -> Option<CQE> {
+        unsafe {
+            let mut cqe = MaybeUninit::uninit();
+            let count = uring_sys::io_uring_peek_batch_cqe(self.ring.as_ptr(), cqe.as_mut_ptr(), 1);
+            if count > 0 {
+                Some(CQE::new(self.ring, &mut *cqe.assume_init()))
+            } else {
+                None
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn wait(&mut self) -> io::Result<&mut uring_sys::io_uring_cqe> {
+        unsafe {
+            let mut cqe = MaybeUninit::uninit();
+
+            resultify(uring_sys::io_uring_wait_cqes(
+                self.ring.as_ptr(),
+                cqe.as_mut_ptr(),
+                self.wait_for as _,
+                ptr::null(),
+                ptr::null(),
+            ))?;
+
+            Ok(&mut *cqe.assume_init())
+        }
+    }
+}
+
+impl Iterator for CQEsBlocking<'_> {
     type Item = io::Result<CQE>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.ready == 0 {
-            self.ready = self.queue.ready();
+            self.ready = self.ready();
             if self.ready == 0 {
-                return Some(self.queue.wait_for_cqes(self.wait_for))
+                let ring = self.ring;
+                return Some(self.wait().map(|cqe| CQE::new(ring, cqe)))
             }
         }
 
         self.ready -= 1;
-        self.queue.peek_for_cqe().map(Ok)
+        self.peek_for_cqe().map(Ok)
     }
 }
 

@@ -260,7 +260,8 @@ impl IoUring {
     }
 
     pub fn wait_for_cqe(&mut self) -> io::Result<CQE> {
-        self.inner_wait_for_cqes(1, ptr::null())
+        let ring = NonNull::from(&self.ring);
+        self.inner_wait_for_cqes(1, ptr::null()).map(|cqe| CQE::new(ring, cqe))
     }
 
     pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
@@ -271,26 +272,35 @@ impl IoUring {
             tv_nsec: duration.subsec_nanos() as _
         };
 
-        self.inner_wait_for_cqes(1, &ts)
+        let ring = NonNull::from(&self.ring);
+        self.inner_wait_for_cqes(1, &ts).map(|cqe| CQE::new(ring, cqe))
     }
 
-    pub fn wait_for_cqes(&mut self, count: u32) -> io::Result<CQE> {
-        self.inner_wait_for_cqes(count as _, ptr::null())
+    pub fn cqes(&mut self) -> CQEs<'_> {
+        CQEs::new(NonNull::from(&mut self.ring))
     }
 
-    pub fn wait_for_cqes_with_timeout(&mut self, count: u32, duration: Duration)
-        -> io::Result<CQE>
+    pub fn cqes_blocking(&mut self, count: u32) -> CQEsBlocking<'_> {
+        CQEsBlocking::new(NonNull::from(&mut self.ring), count)
+    }
+
+    pub fn block_for_cqes(&mut self, count: u32) -> io::Result<()> {
+        self.inner_wait_for_cqes(count as _, ptr::null()).map(|_| ())
+    }
+
+    pub fn block_for_cqes_with_timeout(&mut self, count: u32, duration: Duration)
+        -> io::Result<()>
     {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
             tv_nsec: duration.subsec_nanos() as _
         };
 
-        self.inner_wait_for_cqes(count as _, &ts)
+        self.inner_wait_for_cqes(count as _, &ts).map(|_| ())
     }
 
     fn inner_wait_for_cqes(&mut self, count: u32, ts: *const uring_sys::__kernel_timespec)
-        -> io::Result<CQE>
+        -> io::Result<&mut uring_sys::io_uring_cqe>
     {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
@@ -303,7 +313,7 @@ impl IoUring {
                 ptr::null(),
             ))?;
 
-            Ok(CQE::new(NonNull::from(&self.ring), &mut *cqe.assume_init()))
+            Ok(&mut *cqe.assume_init())
         }
     }
 

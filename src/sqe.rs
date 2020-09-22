@@ -293,6 +293,7 @@ impl<'a> SQE<'a> {
     ///
     /// ```
     /// # use iou::IoUring;
+    /// # use iou::sqe::TimeoutFlags;
     /// # fn main() -> std::io::Result<()> {
     /// # let mut ring = IoUring::new(1)?;
     /// # let mut sqe = ring.prepare_sqe().unwrap();
@@ -436,7 +437,7 @@ impl<'a> SQE<'a> {
 
     /// Prepare a no-op event.
     /// ```
-    /// # use iou::{IoUring, SubmissionFlags};
+    /// # use iou::{IoUring, sqe::SubmissionFlags};
     /// # fn main() -> std::io::Result<()> {
     /// # let mut ring = IoUring::new(1)?;
     /// #
@@ -458,7 +459,7 @@ impl<'a> SQE<'a> {
 
     /// Clear event. Clears user data, flags, and any event setup.
     /// ```
-    /// # use iou::{IoUring, SubmissionFlags};
+    /// # use iou::{IoUring, sqe::SubmissionFlags};
     /// #
     /// # fn main() -> std::io::Result<()> {
     /// # let mut ring = IoUring::new(1)?;
