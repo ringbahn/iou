@@ -45,18 +45,18 @@ impl<'ring> CompletionQueue<'ring> {
     #[inline(always)]
     pub(crate) fn wait_for_cqes(&mut self, count: u32) -> io::Result<CQE> {
         let ring = self.ring;
-        self.wait(count).map(|cqe| CQE::new(ring, cqe))
+        self.wait_inner(count).map(|cqe| CQE::new(ring, cqe))
     }
 
     /// Block the thread until at least `count` CQEs are ready.
     ///
     /// These CQEs can be processed using `peek_for_cqe` or the `cqes` iterator.
-    pub fn block(&mut self, count: u32) -> io::Result<()> {
-        self.wait(count).map(|_| ())
+    pub fn wait(&mut self, count: u32) -> io::Result<()> {
+        self.wait_inner(count).map(|_| ())
     }
 
     #[inline(always)]
-    fn wait(&mut self, count: u32) -> io::Result<&mut uring_sys::io_uring_cqe> {
+    fn wait_inner(&mut self, count: u32) -> io::Result<&mut uring_sys::io_uring_cqe> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
