@@ -28,9 +28,10 @@ impl<'ring> CompletionQueue<'ring> {
     pub fn peek_for_cqe(&mut self) -> Option<CQE> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
-            let count = uring_sys::io_uring_peek_batch_cqe(self.ring.as_ptr(), cqe.as_mut_ptr(), 1);
-            if count > 0 {
-                Some(CQE::new(self.ring, &mut *cqe.assume_init()))
+            uring_sys::io_uring_peek_cqe(self.ring.as_ptr(), cqe.as_mut_ptr());
+            let cqe = cqe.assume_init();
+            if cqe != ptr::null_mut() {
+                Some(CQE::new(self.ring, &mut *cqe))
             } else {
                 None
             }
