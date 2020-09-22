@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{self, IoSliceMut};
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 
 const TEXT: &[u8] = b"I really wanna stop
@@ -17,7 +17,7 @@ But I need to tell you something
 I really really really really really really like you";
 
 #[test]
-fn read_test() -> io::Result<()> {
+fn vectored_read_test() -> io::Result<()> {
     let mut io_uring = iou::IoUring::new(32)?;
 
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -25,10 +25,14 @@ fn read_test() -> io::Result<()> {
     path.push("text.txt");
     let file = File::open(&path)?;
     let mut buf1 = [0; 4096];
-    let mut bufs = [io::IoSliceMut::new(&mut buf1)];
+    let mut bufs = [IoSliceMut::new(&mut buf1)];
 
     unsafe {
-        prep(&mut io_uring, &mut bufs, file.as_raw_fd())?;
+        let mut sq = io_uring.sq();
+        let mut sqe = sq.prepare_sqe().unwrap();
+        sqe.prep_read_vectored(file.as_raw_fd(), &mut bufs[..], 0);
+        sqe.set_user_data(0xDEADBEEF);
+        sq.submit()?;
     }
 
     let n = {
@@ -42,12 +46,98 @@ fn read_test() -> io::Result<()> {
     Ok(())
 }
 
-#[inline(never)]
-unsafe fn prep(ring: &mut iou::IoUring, bufs: &mut [IoSliceMut], fd: RawFd) -> io::Result<()> {
-    let mut sq = ring.sq();
-    let mut sqe = sq.prepare_sqe().unwrap();
-    sqe.prep_read_vectored(fd, bufs, 0);
-    sqe.set_user_data(0xDEADBEEF);
-    sq.submit()?;
+#[test]
+fn read_test() -> io::Result<()> {
+    let mut io_uring = iou::IoUring::new(32)?;
+
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("props");
+    path.push("text.txt");
+    let file = File::open(&path)?;
+    let mut buf = [0; 4096];
+
+    unsafe {
+        let mut sq = io_uring.sq();
+        let mut sqe = sq.prepare_sqe().unwrap();
+        sqe.prep_read(file.as_raw_fd(), &mut buf[..], 0);
+        sqe.set_user_data(0xDEADBEEF);
+        sq.submit()?;
+    }
+
+    let n = {
+        let mut cq = io_uring.cq();
+        let cqe = cq.wait_for_cqe()?;
+        assert_eq!(cqe.user_data(), 0xDEADBEEF);
+        cqe.result()? as usize
+    };
+
+    assert_eq!(&TEXT[..n], &buf[..n]);
+    Ok(())
+}
+
+#[test]
+fn read_registered_buf() -> io::Result<()> {
+    let mut io_uring = iou::IoUring::new(32)?;
+    let bufs = vec![Box::new([0u8; 4096]) as Box<[u8]>];
+    let mut buf: iou::registrar::RegisteredBuf = io_uring.registrar().register_buffers(bufs)?.next().unwrap();
+
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("props");
+    path.push("text.txt");
+    let file = File::open(&path)?;
+
+    unsafe {
+        let mut sq = io_uring.sq();
+        let mut sqe = sq.prepare_sqe().unwrap();
+        sqe.prep_read(file.as_raw_fd(), buf.as_mut(), 0);
+        sqe.set_user_data(0xDEADBEEF);
+        assert!(sqe.raw().opcode == uring_sys::IoRingOp::IORING_OP_READ_FIXED as u8);
+        sq.submit()?;
+    }
+
+    let n = {
+        let mut cq = io_uring.cq();
+        let cqe = cq.wait_for_cqe()?;
+        assert_eq!(cqe.user_data(), 0xDEADBEEF);
+        cqe.result()? as usize
+    };
+
+    assert_eq!(&TEXT[..n], &buf.slice_to(n)[..]);
+    Ok(())
+}
+
+#[test]
+fn read_registered_fd_and_buf() -> io::Result<()> {
+    use iou::registrar::*;
+
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("props");
+    path.push("text.txt");
+
+    let mut io_uring = iou::IoUring::new(32)?;
+    let bufs = vec![Box::new([0u8; 4096]) as Box<[u8]>];
+    let file = File::open(&path)?;
+
+    let mut buf: RegisteredBuf = io_uring.registrar().register_buffers(bufs)?.next().unwrap();
+    let fd: RegisteredFd = io_uring.registrar().register_files(&[file.as_raw_fd()])?.next().unwrap();
+
+    unsafe {
+        let mut sq = io_uring.sq();
+        let mut sqe = sq.prepare_sqe().unwrap();
+        sqe.prep_read(fd, buf.as_mut(), 0);
+        sqe.set_user_data(0xDEADBEEF);
+        assert!(sqe.raw().opcode == uring_sys::IoRingOp::IORING_OP_READ_FIXED as u8);
+        assert!(sqe.flags().contains(iou::sqe::SubmissionFlags::FIXED_FILE));
+        sq.submit()?;
+    }
+
+    let n = {
+        let mut cq = io_uring.cq();
+        let cqe = cq.wait_for_cqe()?;
+        assert_eq!(cqe.user_data(), 0xDEADBEEF);
+        cqe.result()? as usize
+    };
+
+    assert_eq!(&TEXT[..n], &buf.slice_to(n)[..]);
     Ok(())
 }

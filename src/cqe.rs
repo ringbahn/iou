@@ -87,7 +87,7 @@ impl CQE {
 unsafe impl Send for CQE { }
 unsafe impl Sync for CQE { }
 
-/// An iterator of [`CQE`]s from the [`CompletionQueue`].
+/// An iterator of [`CQE`]s from the [`CompletionQueue`](crate::CompletionQueue).
 ///
 /// This iterator will be exhausted when there are no `CQE`s ready, and return `None`.
 pub struct CQEs<'a> {
@@ -137,7 +137,7 @@ impl Iterator for CQEs<'_> {
 }
 
 
-/// An iterator of [`CQE`]s from the [`CompletionQueue`].
+/// An iterator of [`CQE`]s from the [`CompletionQueue`](crate::CompletionQueue).
 ///
 /// This iterator will never be exhausted; if there are no `CQE`s ready, it will block until there
 /// are.
