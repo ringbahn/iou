@@ -236,11 +236,13 @@ impl<'a> SQE<'a> {
         fd.update_sqe(self);
     }
 
+    /// Prepare a recvmsg event on a file descriptor.
     pub unsafe fn prep_recvmsg(&mut self, fd: impl RingFd, msg: *mut libc::msghdr, flags: MsgFlags) {
         uring_sys::io_uring_prep_recvmsg(self.sqe, fd.as_raw_fd(), msg, flags.bits() as _);
         fd.update_sqe(self);
     }
 
+    /// Prepare a sendmsg event on a file descriptor.
     pub unsafe fn prep_sendmsg(&mut self, fd: impl RingFd, msg: *mut libc::msghdr, flags: MsgFlags) {
         uring_sys::io_uring_prep_sendmsg(self.sqe, fd.as_raw_fd(), msg, flags.bits() as _);
         fd.update_sqe(self);
