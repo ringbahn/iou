@@ -6,6 +6,7 @@ use std::ptr::{self, NonNull};
 use super::{IoUring, resultify};
 
 /// A completed IO event.
+#[derive(Debug)]
 pub struct CQE {
     user_data: u64,
     res: i32,
