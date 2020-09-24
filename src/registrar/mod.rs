@@ -134,7 +134,7 @@ impl<'ring> Registrar<'ring> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn register_files<'a>(&mut self, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
+    pub fn register_files<'a>(&self, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
         assert!(files.len() <= u32::MAX as usize);
         resultify(unsafe {
             uring_sys::io_uring_register_files(
@@ -205,7 +205,7 @@ impl<'ring> Registrar<'ring> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn unregister_files(&mut self) -> io::Result<()> {
+    pub fn unregister_files(&self) -> io::Result<()> {
         resultify(unsafe { uring_sys::io_uring_unregister_files(self.ring.as_ptr()) })?;
         Ok(())
     }

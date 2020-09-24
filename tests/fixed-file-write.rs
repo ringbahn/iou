@@ -17,7 +17,7 @@ fn read_fixed() -> std::io::Result<()> {
     let file = File::create(&path)?;
 
     let fixed_fd = file.as_raw_fd();
-    let mut reg: Registrar = ring.registrar();
+    let reg: Registrar = ring.registrar();
 
     // register a new file
     let fileset: Vec<RegisteredFd> = reg.register_files(&[fixed_fd])?.collect();
