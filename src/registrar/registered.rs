@@ -35,6 +35,10 @@ impl<T> Registered<T> {
     pub fn index(&self) -> u32 {
         self.index
     }
+
+    pub fn into_inner(self) -> T {
+        self.data
+    }
 }
 
 impl RegisteredFd {
