@@ -279,7 +279,6 @@ impl<'a> SQE<'a> {
         uring_sys::io_uring_prep_statx(self.sqe, dirfd.as_raw_fd(), path.as_ptr() as _,
                                        flags.bits() as _, mask.bits() as _,
                                        buf as _);
-        dirfd.update_sqe(self);
     }
 
     /// Prepare an openat event.
@@ -292,7 +291,6 @@ impl<'a> SQE<'a> {
         mode: Mode,
     ) {
         uring_sys::io_uring_prep_openat(self.sqe, fd.as_raw_fd(), path.as_ptr() as _, flags.bits(), mode.bits());
-        fd.update_sqe(self);
     }
 
     // TODO openat2
@@ -301,7 +299,6 @@ impl<'a> SQE<'a> {
     #[inline]
     pub unsafe fn prep_close(&mut self, fd: impl UringFd) {
         uring_sys::io_uring_prep_close(self.sqe, fd.as_raw_fd());
-        fd.update_sqe(self);
     }
 
 

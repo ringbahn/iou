@@ -1,6 +1,6 @@
 [package]
 name = "iou"
-version = "0.3.2"
+version = "0.3.3"
 description = "io_uring bindings"
 documentation = "https://docs.rs/iou"
 repository = "https://github.com/withoutboats/iou"
