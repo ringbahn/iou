@@ -30,7 +30,7 @@ impl<'ring> CompletionQueue<'ring> {
             let mut cqe = MaybeUninit::uninit();
             uring_sys::io_uring_peek_cqe(self.ring.as_ptr(), cqe.as_mut_ptr());
             let cqe = cqe.assume_init();
-            if cqe != ptr::null_mut() {
+            if !cqe.is_null() {
                 Some(CQE::new(self.ring, &mut *cqe))
             } else {
                 None
