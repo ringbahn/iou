@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 use std::marker::PhantomData;
 use std::slice;
 use std::time::Duration;
@@ -143,7 +143,7 @@ unsafe impl<'ring> Sync for SubmissionQueue<'ring> { }
 
 pub(crate) unsafe fn prepare_sqe<'a>(ring: &mut uring_sys::io_uring) -> Option<SQE<'a>> {
     let sqe = uring_sys::io_uring_get_sqe(ring);
-    if sqe != ptr::null_mut() {
+    if !sqe.is_null() {
         let mut sqe = SQE::new(&mut *sqe);
         sqe.clear();
         Some(sqe)
