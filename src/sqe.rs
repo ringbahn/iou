@@ -229,7 +229,7 @@ impl<'a> SQE<'a> {
     pub unsafe fn prep_recv(&mut self, fd: impl UringFd, buf: &mut [u8], flags: MsgFlags) {
         let data = buf.as_mut_ptr() as *mut libc::c_void;
         let len = buf.len();
-        uring_sys::io_uring_prep_send(self.sqe, fd.as_raw_fd(), data, len, flags.bits());
+        uring_sys::io_uring_prep_recv(self.sqe, fd.as_raw_fd(), data, len, flags.bits());
         fd.update_sqe(self);
     }
 
