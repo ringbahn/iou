@@ -523,6 +523,7 @@ impl<'a> SQE<'a> {
 unsafe impl<'a> Send for SQE<'a> { }
 unsafe impl<'a> Sync for SQE<'a> { }
 
+#[derive(Debug)]
 pub struct SockAddrStorage {
     storage: mem::MaybeUninit<nix::sys::socket::sockaddr_storage>,
     len: usize,
