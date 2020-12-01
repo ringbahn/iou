@@ -169,7 +169,7 @@ impl IoUring {
     /// Creates a new `IoUring` without any setup flags. `IoUring`'s created using this method will
     /// use interrupt-driven IO.
     ///
-    /// The number of entries must be in the range of 1..4096 (inclusive) and
+    /// The number of entries must be in the range of `1..=4096` and
     /// it's recommended to be a power of two.
     ///
     /// The underlying `SubmissionQueue` and `CompletionQueue` will each have this number of
