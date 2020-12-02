@@ -30,9 +30,7 @@
 //!
 //! A timeout is submitted as an additional IO event which completes after the specified time.
 //! Therefore when you create a timeout, all that happens is that a completion event will appear
-//! after that specified time. This also means that when processing completion events, you need to
-//! be prepared for the possibility that the completion represents a timeout and not a normal IO
-//! event (`CQE` has a method to check for this).
+//! after that specified time.
 
 /// Types related to completion queue events.
 pub mod cqe;
