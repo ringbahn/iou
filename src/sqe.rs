@@ -106,7 +106,7 @@ impl<'a> SQE<'a> {
     /// Prepare a read on a file descriptor.
     ///
     /// Both the file descriptor and the buffer can be pre-registered. See the
-    /// [`registrar][crate::registrar] module for more information.
+    /// [`registrar`][crate::registrar] module for more information.
     #[inline]
     pub unsafe fn prep_read(
         &mut self,
@@ -154,7 +154,7 @@ impl<'a> SQE<'a> {
     /// Prepare a write on a file descriptor.
     ///
     /// Both the file descriptor and the buffer can be pre-registered. See the
-    /// [`registrar][crate::registrar] module for more information.
+    /// [`registrar`][crate::registrar] module for more information.
     #[inline]
     pub unsafe fn prep_write(
         &mut self,
