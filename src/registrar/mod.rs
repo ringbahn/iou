@@ -259,6 +259,62 @@ impl fmt::Debug for Registrar<'_> {
 unsafe impl<'ring> Send for Registrar<'ring> { }
 unsafe impl<'ring> Sync for Registrar<'ring> { }
 
+/// An opaque struct representing a process's credentials.
+///
+/// You can obtain a process's `Personality` using the registrar's
+/// [`register_personality`](crate::registrar::Registrar::register_personality) method
+/// and then use it to issue `SQEs` with that process's credentials. This may be useful if
+/// you are sharing a ring between users.
+/// ```no_run
+/// use std::io;
+/// use std::fs::File;
+/// use std::ffi::CString;
+/// use std::os::unix::fs::PermissionsExt;
+/// use nix::libc;
+/// use nix::unistd::{geteuid, seteuid, Uid};
+/// use iou::sqe::{Mode, OFlag};
+///
+/// fn main() -> io::Result<()> {
+///     if (!geteuid().is_root()) { panic!("example requires root"); }
+///
+///     let mut ring = iou::IoUring::new(1)?;
+///     let path = "personality-tmp.txt";
+///     let c_path = CString::new(path).unwrap();
+///
+///     // create a file only accessible by the owner
+///     {
+///         let f = File::create(path)?;
+///         let mut perms = f.metadata()?.permissions();
+///         perms.set_mode(0o600);
+///         std::fs::set_permissions(path, perms)?;
+///     }
+///
+///     let pers = ring.registrar().register_personality()?;
+///
+///     // other users can't access that file normally...
+///     seteuid(Uid::from_raw(2000)).unwrap();
+///     unsafe {
+///         let mut sqe = ring.prepare_sqe().unwrap();
+///         sqe.prep_openat(libc::AT_FDCWD, &c_path, OFlag::O_RDONLY, Mode::empty());
+///     }
+///     ring.submit_sqes()?;
+///     assert!(ring.wait_for_cqe()?.result().is_err());
+///
+///     // ... but they can use the process's Personality to perform IO
+///     // as if they were that process.
+///     unsafe {
+///         let mut sqe = ring.prepare_sqe().unwrap();
+///         sqe.prep_openat(libc::AT_FDCWD, &c_path, OFlag::O_RDONLY, Mode::empty());
+///         sqe.set_personality(pers);
+///     }
+///     ring.submit_sqes()?;
+///     assert!(ring.wait_for_cqe()?.result().is_ok());
+///
+///     seteuid(Uid::from_raw(0)).unwrap();
+///     let _ = std::fs::remove_file(&path);
+///     Ok(())
+/// }
+/// ```
 #[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
 pub struct Personality {
     pub(crate) id: u16,
