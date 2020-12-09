@@ -249,6 +249,53 @@ impl<'a> SQE<'a> {
     }
 
     /// Prepare a sendmsg event on a file descriptor.
+    ///
+    /// # Example: implement `sendto` using `sendmsg`
+    /// ```no_run
+    /// use std::io::{self, IoSlice};
+    /// use std::net::UdpSocket;
+    /// use std::os::unix::io::AsRawFd;
+    /// use nix::sys::socket::InetAddr;
+    /// use iou::sqe::{MsgFlags, SockAddr};
+    ///
+    /// const TEXT: &[u8] = b"hello there";
+    ///
+    /// fn main() -> io::Result<()> {
+    ///     let mut ring = iou::IoUring::new(1)?;
+    ///     let buf = &[IoSlice::new(TEXT)];
+    ///
+    ///     let sender = UdpSocket::bind("127.0.0.1:3400").expect("couldn't bind to address");
+    ///     let receiver = UdpSocket::bind("127.0.0.1:3401").expect("couldn't bind to address");
+    ///
+    ///     let recv_addr = SockAddr::Inet(InetAddr::from_std(&receiver.local_addr()?));
+    ///     let (name, len) = recv_addr.as_ffi_pair();
+    ///
+    ///     let mut mhdr: libc::msghdr = unsafe { std::mem::zeroed() };
+    ///     // Safety:
+    ///     // &_ as *const _ as *mut _ does not lead to UB here because the
+    ///     // resulting mut pointers are never written to.
+    ///     mhdr.msg_name = name as *const _ as *mut _;
+    ///     mhdr.msg_namelen = len;
+    ///     mhdr.msg_iov = buf as *const _ as *mut _;
+    ///     mhdr.msg_iovlen = 1;
+    ///     unsafe {
+    ///         let mut sqe = ring.prepare_sqe().unwrap();
+    ///         sqe.prep_sendmsg(sender.as_raw_fd(), &mut mhdr as *mut _, MsgFlags::empty());
+    ///     }
+    ///     ring.submit_sqes()?;
+    ///
+    ///     let res = ring.wait_for_cqe()?.result()?;
+    ///     assert_eq!(res, TEXT.len() as u32);
+    ///
+    ///     let mut buf = [0; TEXT.len()];
+    ///     let (amt, src) = receiver.recv_from(&mut buf)?;
+    ///
+    ///     assert_eq!(amt, TEXT.len());
+    ///     assert_eq!(src, sender.local_addr()?);
+    ///     assert_eq!(buf, TEXT);
+    ///     Ok(())
+    /// }
+    /// ```
     pub unsafe fn prep_sendmsg(&mut self, fd: impl UringFd, msg: *mut libc::msghdr, flags: MsgFlags) {
         uring_sys::io_uring_prep_sendmsg(self.sqe, fd.as_raw_fd(), msg, flags.bits() as _);
         fd.update_sqe(self);
