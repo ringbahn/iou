@@ -1,6 +1,6 @@
+use std::ffi::CStr;
 use std::io;
 use std::mem;
-use std::ffi::CStr;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::io::RawFd;
 use std::ptr;
@@ -8,12 +8,12 @@ use std::slice;
 
 use crate::registrar::{UringFd, UringReadBuf, UringWriteBuf};
 
-pub use nix::fcntl::{OFlag, FallocateFlags, PosixFadviseAdvice};
+pub use nix::fcntl::{FallocateFlags, OFlag, PosixFadviseAdvice};
 pub use nix::poll::PollFlags;
-pub use nix::sys::epoll::{EpollOp, EpollEvent};
+pub use nix::sys::epoll::{EpollEvent, EpollOp};
 pub use nix::sys::mman::MmapAdvise;
+pub use nix::sys::socket::{MsgFlags, SockAddr, SockFlag};
 pub use nix::sys::stat::Mode;
-pub use nix::sys::socket::{SockAddr, SockFlag, MsgFlags};
 
 use crate::Personality;
 
@@ -50,7 +50,7 @@ impl<'a> SQE<'a> {
     /// `SQE` may impose additional safety invariants which you must adhere to
     /// when setting the user_data for a submission queue event, which it may rely on when
     /// processing the corresponding completion queue event. For example, the library
-    /// [ringbahn][ringbahn] 
+    /// [ringbahn][ringbahn]
     ///
     /// # Example
     ///
@@ -108,12 +108,7 @@ impl<'a> SQE<'a> {
     /// Both the file descriptor and the buffer can be pre-registered. See the
     /// [`registrar][crate::registrar] module for more information.
     #[inline]
-    pub unsafe fn prep_read(
-        &mut self,
-        fd: impl UringFd,
-        buf: impl UringReadBuf,
-        offset: u64,
-    ) {
+    pub unsafe fn prep_read(&mut self, fd: impl UringFd, buf: impl UringReadBuf, offset: u64) {
         buf.prep_read(fd, self, offset);
     }
 
@@ -142,12 +137,14 @@ impl<'a> SQE<'a> {
     ) {
         let len = buf.len();
         let addr = buf.as_mut_ptr();
-        uring_sys::io_uring_prep_read_fixed(self.sqe,
-                                      fd.as_raw_fd(),
-                                      addr as _,
-                                      len as _,
-                                      offset as _,
-                                      buf_index as _);
+        uring_sys::io_uring_prep_read_fixed(
+            self.sqe,
+            fd.as_raw_fd(),
+            addr as _,
+            len as _,
+            offset as _,
+            buf_index as _,
+        );
         fd.update_sqe(self);
     }
 
@@ -156,12 +153,7 @@ impl<'a> SQE<'a> {
     /// Both the file descriptor and the buffer can be pre-registered. See the
     /// [`registrar][crate::registrar] module for more information.
     #[inline]
-    pub unsafe fn prep_write(
-        &mut self,
-        fd: impl UringFd,
-        buf: impl UringWriteBuf,
-        offset: u64,
-    ) {
+    pub unsafe fn prep_write(&mut self, fd: impl UringFd, buf: impl UringWriteBuf, offset: u64) {
         buf.prep_write(fd, self, offset)
     }
 
@@ -175,11 +167,7 @@ impl<'a> SQE<'a> {
     ) {
         let len = bufs.len();
         let addr = bufs.as_ptr();
-        uring_sys::io_uring_prep_writev(self.sqe,
-                                    fd.as_raw_fd(),
-                                    addr as _,
-                                    len as _,
-                                    offset as _);
+        uring_sys::io_uring_prep_writev(self.sqe, fd.as_raw_fd(), addr as _, len as _, offset as _);
         fd.update_sqe(self);
     }
 
@@ -194,12 +182,14 @@ impl<'a> SQE<'a> {
     ) {
         let len = buf.len();
         let addr = buf.as_ptr();
-        uring_sys::io_uring_prep_write_fixed(self.sqe,
-                                       fd.as_raw_fd(),
-                                       addr as _,
-                                       len as _,
-                                       offset as _,
-                                       buf_index as _);
+        uring_sys::io_uring_prep_write_fixed(
+            self.sqe,
+            fd.as_raw_fd(),
+            addr as _,
+            len as _,
+            offset as _,
+            buf_index as _,
+        );
         fd.update_sqe(self);
     }
 
@@ -221,7 +211,15 @@ impl<'a> SQE<'a> {
         count: u32,
         flags: SpliceFlags,
     ) {
-        uring_sys::io_uring_prep_splice(self.sqe, fd_in, off_in, fd_out, off_out, count, flags.bits());
+        uring_sys::io_uring_prep_splice(
+            self.sqe,
+            fd_in,
+            off_in,
+            fd_out,
+            off_out,
+            count,
+            flags.bits(),
+        );
     }
 
     /// Prepare a recv event on a file descriptor.
@@ -243,26 +241,43 @@ impl<'a> SQE<'a> {
     }
 
     /// Prepare a recvmsg event on a file descriptor.
-    pub unsafe fn prep_recvmsg(&mut self, fd: impl UringFd, msg: *mut libc::msghdr, flags: MsgFlags) {
+    pub unsafe fn prep_recvmsg(
+        &mut self,
+        fd: impl UringFd,
+        msg: *mut libc::msghdr,
+        flags: MsgFlags,
+    ) {
         uring_sys::io_uring_prep_recvmsg(self.sqe, fd.as_raw_fd(), msg, flags.bits() as _);
         fd.update_sqe(self);
     }
 
     /// Prepare a sendmsg event on a file descriptor.
-    pub unsafe fn prep_sendmsg(&mut self, fd: impl UringFd, msg: *mut libc::msghdr, flags: MsgFlags) {
+    pub unsafe fn prep_sendmsg(
+        &mut self,
+        fd: impl UringFd,
+        msg: *mut libc::msghdr,
+        flags: MsgFlags,
+    ) {
         uring_sys::io_uring_prep_sendmsg(self.sqe, fd.as_raw_fd(), msg, flags.bits() as _);
         fd.update_sqe(self);
     }
 
     /// Prepare a fallocate event.
     #[inline]
-    pub unsafe fn prep_fallocate(&mut self, fd: impl UringFd,
-                                 offset: u64, size: u64,
-                                 flags: FallocateFlags) {
-        uring_sys::io_uring_prep_fallocate(self.sqe, fd.as_raw_fd(),
-                                        flags.bits() as _,
-                                        offset as _,
-                                        size as _);
+    pub unsafe fn prep_fallocate(
+        &mut self,
+        fd: impl UringFd,
+        offset: u64,
+        size: u64,
+        flags: FallocateFlags,
+    ) {
+        uring_sys::io_uring_prep_fallocate(
+            self.sqe,
+            fd.as_raw_fd(),
+            flags.bits() as _,
+            offset as _,
+            size as _,
+        );
         fd.update_sqe(self);
     }
 
@@ -276,21 +291,26 @@ impl<'a> SQE<'a> {
         mask: StatxMode,
         buf: &mut libc::statx,
     ) {
-        uring_sys::io_uring_prep_statx(self.sqe, dirfd.as_raw_fd(), path.as_ptr() as _,
-                                       flags.bits() as _, mask.bits() as _,
-                                       buf as _);
+        uring_sys::io_uring_prep_statx(
+            self.sqe,
+            dirfd.as_raw_fd(),
+            path.as_ptr() as _,
+            flags.bits() as _,
+            mask.bits() as _,
+            buf as _,
+        );
     }
 
     /// Prepare an openat event.
     #[inline]
-    pub unsafe fn prep_openat(
-        &mut self,
-        fd: impl UringFd,
-        path: &CStr,
-        flags: OFlag,
-        mode: Mode,
-    ) {
-        uring_sys::io_uring_prep_openat(self.sqe, fd.as_raw_fd(), path.as_ptr() as _, flags.bits(), mode.bits());
+    pub unsafe fn prep_openat(&mut self, fd: impl UringFd, path: &CStr, flags: OFlag, mode: Mode) {
+        uring_sys::io_uring_prep_openat(
+            self.sqe,
+            fd.as_raw_fd(),
+            path.as_ptr() as _,
+            flags.bits(),
+            mode.bits(),
+        );
     }
 
     // TODO openat2
@@ -300,7 +320,6 @@ impl<'a> SQE<'a> {
     pub unsafe fn prep_close(&mut self, fd: impl UringFd) {
         uring_sys::io_uring_prep_close(self.sqe, fd.as_raw_fd());
     }
-
 
     /// Prepare a timeout event.
     ///
@@ -324,11 +343,18 @@ impl<'a> SQE<'a> {
     /// # }
     ///```
     #[inline]
-    pub unsafe fn prep_timeout(&mut self, ts: &uring_sys::__kernel_timespec, events: u32, flags: TimeoutFlags) {
-        uring_sys::io_uring_prep_timeout(self.sqe,
-                                   ts as *const _ as *mut _,
-                                   events as _,
-                                   flags.bits() as _);
+    pub unsafe fn prep_timeout(
+        &mut self,
+        ts: &uring_sys::__kernel_timespec,
+        events: u32,
+        flags: TimeoutFlags,
+    ) {
+        uring_sys::io_uring_prep_timeout(
+            self.sqe,
+            ts as *const _ as *mut _,
+            events as _,
+            flags.bits() as _,
+        );
     }
 
     #[inline]
@@ -360,25 +386,39 @@ impl<'a> SQE<'a> {
     }
 
     #[inline]
-    pub unsafe fn prep_accept(&mut self, fd: impl UringFd, accept: Option<&mut SockAddrStorage>, flags: SockFlag) {
+    pub unsafe fn prep_accept(
+        &mut self,
+        fd: impl UringFd,
+        accept: Option<&mut SockAddrStorage>,
+        flags: SockFlag,
+    ) {
         let (addr, len) = match accept {
-            Some(accept) => (accept.storage.as_mut_ptr() as *mut _, &mut accept.len as *mut _ as *mut _),
-            None => (std::ptr::null_mut(), std::ptr::null_mut())
+            Some(accept) => (
+                accept.storage.as_mut_ptr() as *mut _,
+                &mut accept.len as *mut _ as *mut _,
+            ),
+            None => (std::ptr::null_mut(), std::ptr::null_mut()),
         };
         uring_sys::io_uring_prep_accept(self.sqe, fd.as_raw_fd(), addr, len, flags.bits());
         fd.update_sqe(self);
     }
 
     #[inline]
-    pub unsafe fn prep_fadvise(&mut self, fd: impl UringFd, off: u64, len: u64, advice: PosixFadviseAdvice) {
+    pub unsafe fn prep_fadvise(
+        &mut self,
+        fd: impl UringFd,
+        off: u64,
+        len: u64,
+        advice: PosixFadviseAdvice,
+    ) {
         use PosixFadviseAdvice::*;
         let advice = match advice {
-            POSIX_FADV_NORMAL       => libc::POSIX_FADV_NORMAL,
-            POSIX_FADV_SEQUENTIAL   => libc::POSIX_FADV_SEQUENTIAL,
-            POSIX_FADV_RANDOM       => libc::POSIX_FADV_RANDOM,
-            POSIX_FADV_NOREUSE      => libc::POSIX_FADV_NOREUSE,
-            POSIX_FADV_WILLNEED     => libc::POSIX_FADV_WILLNEED,
-            POSIX_FADV_DONTNEED     => libc::POSIX_FADV_DONTNEED,
+            POSIX_FADV_NORMAL => libc::POSIX_FADV_NORMAL,
+            POSIX_FADV_SEQUENTIAL => libc::POSIX_FADV_SEQUENTIAL,
+            POSIX_FADV_RANDOM => libc::POSIX_FADV_RANDOM,
+            POSIX_FADV_NOREUSE => libc::POSIX_FADV_NOREUSE,
+            POSIX_FADV_WILLNEED => libc::POSIX_FADV_WILLNEED,
+            POSIX_FADV_DONTNEED => libc::POSIX_FADV_DONTNEED,
         };
         uring_sys::io_uring_prep_fadvise(self.sqe, fd.as_raw_fd(), off as _, len as _, advice);
         fd.update_sqe(self);
@@ -388,33 +428,44 @@ impl<'a> SQE<'a> {
     pub unsafe fn prep_madvise(&mut self, data: &mut [u8], advice: MmapAdvise) {
         use MmapAdvise::*;
         let advice = match advice {
-            MADV_NORMAL         => libc::MADV_NORMAL,
-            MADV_RANDOM         => libc::MADV_RANDOM,
-            MADV_SEQUENTIAL     => libc::MADV_SEQUENTIAL,
-            MADV_WILLNEED       => libc::MADV_WILLNEED,
-            MADV_DONTNEED       => libc::MADV_DONTNEED,
-            MADV_REMOVE         => libc::MADV_REMOVE,
-            MADV_DONTFORK       => libc::MADV_DONTFORK,
-            MADV_DOFORK         => libc::MADV_DOFORK,
-            MADV_HWPOISON       => libc::MADV_HWPOISON,
-            MADV_MERGEABLE      => libc::MADV_MERGEABLE,
-            MADV_UNMERGEABLE    => libc::MADV_UNMERGEABLE,
-            MADV_SOFT_OFFLINE   => libc::MADV_SOFT_OFFLINE,
-            MADV_HUGEPAGE       => libc::MADV_HUGEPAGE,
-            MADV_NOHUGEPAGE     => libc::MADV_NOHUGEPAGE,
-            MADV_DONTDUMP       => libc::MADV_DONTDUMP,
-            MADV_DODUMP         => libc::MADV_DODUMP,
-            MADV_FREE           => libc::MADV_FREE,
+            MADV_NORMAL => libc::MADV_NORMAL,
+            MADV_RANDOM => libc::MADV_RANDOM,
+            MADV_SEQUENTIAL => libc::MADV_SEQUENTIAL,
+            MADV_WILLNEED => libc::MADV_WILLNEED,
+            MADV_DONTNEED => libc::MADV_DONTNEED,
+            MADV_REMOVE => libc::MADV_REMOVE,
+            MADV_DONTFORK => libc::MADV_DONTFORK,
+            MADV_DOFORK => libc::MADV_DOFORK,
+            MADV_HWPOISON => libc::MADV_HWPOISON,
+            MADV_MERGEABLE => libc::MADV_MERGEABLE,
+            MADV_UNMERGEABLE => libc::MADV_UNMERGEABLE,
+            MADV_SOFT_OFFLINE => libc::MADV_SOFT_OFFLINE,
+            MADV_HUGEPAGE => libc::MADV_HUGEPAGE,
+            MADV_NOHUGEPAGE => libc::MADV_NOHUGEPAGE,
+            MADV_DONTDUMP => libc::MADV_DONTDUMP,
+            MADV_DODUMP => libc::MADV_DODUMP,
+            MADV_FREE => libc::MADV_FREE,
         };
-        uring_sys::io_uring_prep_madvise(self.sqe, data.as_mut_ptr() as *mut _, data.len() as _, advice);
+        uring_sys::io_uring_prep_madvise(
+            self.sqe,
+            data.as_mut_ptr() as *mut _,
+            data.len() as _,
+            advice,
+        );
     }
 
     #[inline]
-    pub unsafe fn prep_epoll_ctl(&mut self, epoll_fd: RawFd, op: EpollOp, fd: RawFd, event: Option<&mut EpollEvent>) {
+    pub unsafe fn prep_epoll_ctl(
+        &mut self,
+        epoll_fd: RawFd,
+        op: EpollOp,
+        fd: RawFd,
+        event: Option<&mut EpollEvent>,
+    ) {
         let op = match op {
-            EpollOp::EpollCtlAdd    => libc::EPOLL_CTL_ADD,
-            EpollOp::EpollCtlDel    => libc::EPOLL_CTL_DEL,
-            EpollOp::EpollCtlMod    => libc::EPOLL_CTL_MOD,
+            EpollOp::EpollCtlAdd => libc::EPOLL_CTL_ADD,
+            EpollOp::EpollCtlDel => libc::EPOLL_CTL_DEL,
+            EpollOp::EpollCtlMod => libc::EPOLL_CTL_MOD,
         };
         let event = event.map_or(ptr::null_mut(), |event| event as *mut EpollEvent as *mut _);
         uring_sys::io_uring_prep_epoll_ctl(self.sqe, epoll_fd, fd, op, event);
@@ -427,7 +478,8 @@ impl<'a> SQE<'a> {
         uring_sys::io_uring_prep_files_update(self.sqe, addr, len, offset as _);
     }
 
-    pub unsafe fn prep_provide_buffers(&mut self,
+    pub unsafe fn prep_provide_buffers(
+        &mut self,
         buffers: &mut [u8],
         count: u32,
         group: BufferGroupId,
@@ -435,7 +487,14 @@ impl<'a> SQE<'a> {
     ) {
         let addr = buffers.as_mut_ptr() as *mut libc::c_void;
         let len = buffers.len() as u32 / count;
-        uring_sys::io_uring_prep_provide_buffers(self.sqe, addr, len as _, count as _, group.id as _, index as _);
+        uring_sys::io_uring_prep_provide_buffers(
+            self.sqe,
+            addr,
+            len as _,
+            count as _,
+            group.id as _,
+            index as _,
+        );
     }
 
     pub unsafe fn prep_remove_buffers(&mut self, count: u32, id: BufferGroupId) {
@@ -446,7 +505,6 @@ impl<'a> SQE<'a> {
     pub unsafe fn prep_cancel(&mut self, user_data: u64, flags: i32) {
         uring_sys::io_uring_prep_cancel(self.sqe, user_data as _, flags);
     }
-
 
     /// Prepare a no-op event.
     /// ```
@@ -520,8 +578,8 @@ impl<'a> SQE<'a> {
     }
 }
 
-unsafe impl<'a> Send for SQE<'a> { }
-unsafe impl<'a> Sync for SQE<'a> { }
+unsafe impl<'a> Send for SQE<'a> {}
+unsafe impl<'a> Sync for SQE<'a> {}
 
 #[derive(Debug)]
 pub struct SockAddrStorage {
@@ -533,10 +591,7 @@ impl SockAddrStorage {
     pub fn uninit() -> Self {
         let storage = mem::MaybeUninit::uninit();
         let len = mem::size_of::<nix::sys::socket::sockaddr_storage>();
-        SockAddrStorage {
-            storage,
-            len
-        }
+        SockAddrStorage { storage, len }
     }
 
     pub unsafe fn as_socket_addr(&self) -> io::Result<SockAddr> {
@@ -545,7 +600,7 @@ impl SockAddrStorage {
             let err_no = e.as_errno();
             match err_no {
                 Some(err_no) => io::Error::from_raw_os_error(err_no as _),
-                None => io::Error::new(io::ErrorKind::Other, "Unknown error")
+                None => io::Error::new(io::ErrorKind::Other, "Unknown error"),
             }
         })
     }
@@ -563,14 +618,19 @@ bitflags::bitflags! {
         const FIXED_FILE    = 1 << 0;   /* use fixed fileset */
         /// Submit this event only after completing all ongoing submission events.
         const IO_DRAIN      = 1 << 1;   /* issue after inflight IO */
-        /// Force the next submission event to wait until this event has completed sucessfully.
+        /// Force the next submission event to wait until this event has completed successfully.
         ///
         /// An event's link only applies to the next event, but link chains can be
         /// arbitrarily long.
         const IO_LINK       = 1 << 2;   /* next IO depends on this one */
-
+        /// Force the next submission event to wait until this event has completed.
+        ///
+        /// An event's link only applies to the next event, but link chains can be arbitrarily long.
+        /// The next submission event will be executed no matter current event succeeds or fails.
         const IO_HARDLINK   = 1 << 3;
+        /// Execute the event in asynchronous mode without trying non-blocking mode first.
         const ASYNC         = 1 << 4;
+
         const BUFFER_SELECT = 1 << 5;
     }
 }
@@ -638,7 +698,10 @@ impl<'ring> SQEs<'ring> {
     /// additional [`SQE`]s will return `None`.
     pub fn single(&mut self) -> Option<SQE<'ring>> {
         let mut next = None;
-        while let Some(sqe) = self.consume() { next = Some(sqe) }
+        while let Some(mut sqe) = self.consume() {
+            unsafe { sqe.prep_nop() };
+            next = Some(sqe)
+        }
         next
     }
 
@@ -665,7 +728,7 @@ impl<'ring> SQEs<'ring> {
 
     fn consume(&mut self) -> Option<SQE<'ring>> {
         self.sqes.next().map(|sqe| {
-            unsafe { uring_sys::io_uring_prep_nop(sqe) }
+            unsafe { *sqe = mem::zeroed() };
             SQE { sqe }
         })
     }
@@ -680,6 +743,9 @@ impl<'ring> Iterator for SQEs<'ring> {
 }
 
 /// An Iterator of [`SQE`]s which will be hard linked together.
+///
+/// All HardLinked objects must be dropped before submitting the submission queue to ensure
+/// correctly handling of the IO chain.
 pub struct HardLinked<'ring, 'a> {
     sqes: &'a mut SQEs<'ring>,
 }
@@ -695,10 +761,27 @@ impl<'ring> Iterator for HardLinked<'ring, '_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let is_final = self.sqes.remaining() == 1;
-        self.sqes.consume().map(|sqe| HardLinkedSQE { sqe, is_final })
+        self.sqes
+            .consume()
+            .map(|sqe| HardLinkedSQE { sqe, is_final })
     }
 }
 
+impl<'ring> Drop for HardLinked<'ring, '_> {
+    fn drop(&mut self) {
+        // Ensure that all left descriptors are properly consumed.
+        for mut sqe in &mut self.sqes {
+            unsafe {
+                sqe.prep_nop();
+            }
+        }
+    }
+}
+
+/// Represent a non-tail event descriptor on an hardly linked IO chain.
+///
+/// All HardLinkedSQE objects must be dropped before submitting the submission queue to ensure
+/// correctly handling of the IO_HARDLINK flag.
 pub struct HardLinkedSQE<'ring> {
     sqe: SQE<'ring>,
     is_final: bool,
@@ -718,6 +801,10 @@ impl<'ring> DerefMut for HardLinkedSQE<'ring> {
     }
 }
 
+// TODO: any better way to set the IO_HARDLINK flag?
+// If submit() is called before dropping the HardLinkedSQE object, it may caused race windows
+// under which the kernel observes malformed IO chains. This type of race window will be very hard
+// to root cause.
 impl<'ring> Drop for HardLinkedSQE<'ring> {
     fn drop(&mut self) {
         if !self.is_final {
@@ -727,6 +814,9 @@ impl<'ring> Drop for HardLinkedSQE<'ring> {
 }
 
 /// An Iterator of [`SQE`]s which will be soft linked together.
+///
+/// All SoftLinked objects must be dropped before submitting the submission queue to ensure
+/// correctly handling of the IO chain.
 pub struct SoftLinked<'ring, 'a> {
     sqes: &'a mut SQEs<'ring>,
 }
@@ -742,10 +832,27 @@ impl<'ring> Iterator for SoftLinked<'ring, '_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let is_final = self.sqes.remaining() == 1;
-        self.sqes.consume().map(|sqe| SoftLinkedSQE { sqe, is_final })
+        self.sqes
+            .consume()
+            .map(|sqe| SoftLinkedSQE { sqe, is_final })
     }
 }
 
+impl<'ring> Drop for SoftLinked<'ring, '_> {
+    fn drop(&mut self) {
+        // Ensure that all left descriptors are properly consumed.
+        for mut sqe in &mut self.sqes {
+            unsafe {
+                sqe.prep_nop();
+            }
+        }
+    }
+}
+
+/// Represent a non-tail event descriptor on an softly linked IO chain.
+///
+/// All SoftLinkedSQE objects must be dropped before submitting the submission queue to ensure
+/// correctly handling of the IO_HARDLINK flag.
 pub struct SoftLinkedSQE<'ring> {
     sqe: SQE<'ring>,
     is_final: bool,
@@ -765,6 +872,10 @@ impl<'ring> DerefMut for SoftLinkedSQE<'ring> {
     }
 }
 
+// TODO: any better way to set the IO_LINK flag?
+// If submit() is called before dropping the SoftLinkedSQE object, it may caused race windows
+// under which the kernel observes malformed IO chains. This type of race window will be very hard
+// to root cause.
 impl<'ring> Drop for SoftLinkedSQE<'ring> {
     fn drop(&mut self) {
         if !self.is_final {

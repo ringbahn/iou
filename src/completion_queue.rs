@@ -2,9 +2,9 @@ use std::fmt;
 use std::io;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 
-use super::{IoUring, CQE, CQEs, CQEsBlocking, resultify};
+use super::{resultify, CQEs, CQEsBlocking, IoUring, CQE};
 
 /// The queue of completed IO events.
 ///
@@ -61,12 +61,10 @@ impl<'ring> CompletionQueue<'ring> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
-            resultify(uring_sys::io_uring_wait_cqes(
+            resultify(uring_sys::io_uring_wait_cqe_nr(
                 self.ring.as_ptr(),
                 cqe.as_mut_ptr(),
                 count as _,
-                ptr::null(),
-                ptr::null(),
             ))?;
 
             Ok(&mut *cqe.assume_init())
@@ -89,14 +87,17 @@ impl<'ring> CompletionQueue<'ring> {
         CQEsBlocking::new(self.ring, wait_for)
     }
 
+    /// Returns how many descriptors are ready for processing on the completion queue.
     pub fn ready(&self) -> u32 {
         unsafe { uring_sys::io_uring_cq_ready(self.ring.as_ptr()) }
     }
 
+    /// Returns true if the eventfd notification is currently enabled.
     pub fn eventfd_enabled(&self) -> bool {
         unsafe { uring_sys::io_uring_cq_eventfd_enabled(self.ring.as_ptr()) }
     }
 
+    /// Toggle eventfd notification on or off, if an eventfd is registered with the ring.
     pub fn eventfd_toggle(&mut self, enabled: bool) -> io::Result<()> {
         resultify(unsafe { uring_sys::io_uring_cq_eventfd_toggle(self.ring.as_ptr(), enabled) })?;
         Ok(())
@@ -106,9 +107,11 @@ impl<'ring> CompletionQueue<'ring> {
 impl fmt::Debug for CompletionQueue<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let fd = unsafe { self.ring.as_ref().ring_fd };
-        f.debug_struct(std::any::type_name::<Self>()).field("fd", &fd).finish()
+        f.debug_struct(std::any::type_name::<Self>())
+            .field("fd", &fd)
+            .finish()
     }
 }
 
-unsafe impl<'ring> Send for CompletionQueue<'ring> { }
-unsafe impl<'ring> Sync for CompletionQueue<'ring> { }
+unsafe impl<'ring> Send for CompletionQueue<'ring> {}
+unsafe impl<'ring> Sync for CompletionQueue<'ring> {}

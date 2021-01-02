@@ -79,7 +79,8 @@ fn read_test() -> io::Result<()> {
 fn read_registered_buf() -> io::Result<()> {
     let mut io_uring = iou::IoUring::new(32)?;
     let bufs = vec![Box::new([0u8; 4096]) as Box<[u8]>];
-    let mut buf: iou::registrar::RegisteredBuf = io_uring.registrar().register_buffers(bufs)?.next().unwrap();
+    let mut buf: iou::registrar::RegisteredBuf =
+        io_uring.registrar().register_buffers(bufs)?.next().unwrap();
 
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("props");
@@ -119,7 +120,11 @@ fn read_registered_fd_and_buf() -> io::Result<()> {
     let file = File::open(&path)?;
 
     let mut buf: RegisteredBuf = io_uring.registrar().register_buffers(bufs)?.next().unwrap();
-    let fd: RegisteredFd = io_uring.registrar().register_files(&[file.as_raw_fd()])?.next().unwrap();
+    let fd: RegisteredFd = io_uring
+        .registrar()
+        .register_files(&[file.as_raw_fd()])?
+        .next()
+        .unwrap();
 
     unsafe {
         let mut sq = io_uring.sq();

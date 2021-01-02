@@ -14,10 +14,10 @@ mod registered;
 use std::fmt;
 use std::io;
 use std::marker::PhantomData;
-use std::ptr::NonNull;
 use std::os::unix::io::RawFd;
+use std::ptr::NonNull;
 
-use crate::{IoUring, Probe, resultify};
+use crate::{resultify, IoUring, Probe};
 
 pub use registered::*;
 
@@ -57,9 +57,10 @@ impl<'ring> Registrar<'ring> {
         }
     }
 
-    pub fn register_buffers(&self, buffers: Vec<Box<[u8]>>)
-        -> io::Result<impl Iterator<Item = RegisteredBuf>>
-    {
+    pub fn register_buffers(
+        &self,
+        buffers: Vec<Box<[u8]>>,
+    ) -> io::Result<impl Iterator<Item = RegisteredBuf>> {
         let len = buffers.len();
         let addr = buffers.as_ptr() as *const _;
         resultify(unsafe {
@@ -68,13 +69,13 @@ impl<'ring> Registrar<'ring> {
         Ok(buffers
             .into_iter()
             .enumerate()
-            .map(|(i, buf)| RegisteredBuf::new(i as u32, buf))
-        )
+            .map(|(i, buf)| RegisteredBuf::new(i as u32, buf)))
     }
 
-    pub fn register_buffers_by_ref<'a>(&self, buffers: &'a [&'a [u8]])
-        -> io::Result<impl Iterator<Item = RegisteredBufRef<'a>> + 'a>
-    {
+    pub fn register_buffers_by_ref<'a>(
+        &self,
+        buffers: &'a [&'a [u8]],
+    ) -> io::Result<impl Iterator<Item = RegisteredBufRef<'a>> + 'a> {
         let len = buffers.len();
         let addr = buffers.as_ptr() as *const _;
         resultify(unsafe {
@@ -83,13 +84,13 @@ impl<'ring> Registrar<'ring> {
         Ok(buffers
             .iter()
             .enumerate()
-            .map(|(i, buf)| Registered::new(i as u32, &**buf))
-        )
+            .map(|(i, buf)| Registered::new(i as u32, &**buf)))
     }
 
-    pub fn register_buffers_by_mut<'a>(&self, buffers: &'a mut [&'a mut [u8]])
-        -> io::Result<impl Iterator<Item = RegisteredBufMut<'a>> + 'a>
-    {
+    pub fn register_buffers_by_mut<'a>(
+        &self,
+        buffers: &'a mut [&'a mut [u8]],
+    ) -> io::Result<impl Iterator<Item = RegisteredBufMut<'a>> + 'a> {
         let len = buffers.len();
         let addr = buffers.as_ptr() as *const _;
         resultify(unsafe {
@@ -98,22 +99,19 @@ impl<'ring> Registrar<'ring> {
         Ok(buffers
             .iter_mut()
             .enumerate()
-            .map(|(i, buf)| Registered::new(i as u32, &mut **buf))
-        )
+            .map(|(i, buf)| Registered::new(i as u32, &mut **buf)))
     }
 
     /// Unregister all currently registered buffers. An explicit call to this method is often unecessary,
     /// because all buffers will be unregistered automatically when the ring is dropped.
     pub fn unregister_buffers(&self) -> io::Result<()> {
-        resultify(unsafe {
-            uring_sys::io_uring_unregister_buffers(self.ring.as_ptr())
-        })?;
+        resultify(unsafe { uring_sys::io_uring_unregister_buffers(self.ring.as_ptr()) })?;
         Ok(())
     }
 
-    /// Register a set of files with the kernel. Registered files handle kernel fileset indexing 
+    /// Register a set of files with the kernel. Registered files handle kernel fileset indexing
     /// behind the scenes and can often be used in place of raw file descriptors.
-    /// 
+    ///
     /// # Errors
     /// Returns an error if
     /// * there is a preexisting set of registered files,
@@ -134,20 +132,22 @@ impl<'ring> Registrar<'ring> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn register_files<'a>(&self, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
+    pub fn register_files<'a>(
+        &self,
+        files: &'a [RawFd],
+    ) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
         assert!(files.len() <= u32::MAX as usize);
         resultify(unsafe {
             uring_sys::io_uring_register_files(
-                self.ring.as_ptr(), 
-                files.as_ptr() as *const _, 
-                files.len() as _
+                self.ring.as_ptr(),
+                files.as_ptr() as *const _,
+                files.len() as _,
             )
         })?;
         Ok(files
             .iter()
             .enumerate()
-            .map(|(i, &fd)| RegisteredFd::new(i as u32, fd))
-        )
+            .map(|(i, &fd)| RegisteredFd::new(i as u32, fd)))
     }
 
     /// Update the currently registered kernel fileset. It is usually more efficient to reserve space
@@ -157,11 +157,15 @@ impl<'ring> Registrar<'ring> {
     /// Returns an error if
     /// * there isn't a registered fileset,
     /// * the `files` slice was empty,
-    /// * `offset` is out of bounds, 
+    /// * `offset` is out of bounds,
     /// * the `files` slice was too large,
     /// * the inner [`io_uring_register_files_update`](uring_sys::io_uring_register_files_update) call
     ///   failed for another reason
-    pub fn update_registered_files<'a>(&mut self, offset: usize, files: &'a [RawFd]) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
+    pub fn update_registered_files<'a>(
+        &mut self,
+        offset: usize,
+        files: &'a [RawFd],
+    ) -> io::Result<impl Iterator<Item = RegisteredFd> + 'a> {
         assert!(files.len() + offset <= u32::MAX as usize);
         resultify(unsafe {
             uring_sys::io_uring_register_files_update(
@@ -174,8 +178,7 @@ impl<'ring> Registrar<'ring> {
         Ok(files
             .iter()
             .enumerate()
-            .map(move |(i, &fd)| RegisteredFd::new((i + offset) as u32, fd))
-        )
+            .map(move |(i, &fd)| RegisteredFd::new((i + offset) as u32, fd)))
     }
 
     /// Unregister all currently registered files. An explicit call to this method is often unecessary,
@@ -211,9 +214,7 @@ impl<'ring> Registrar<'ring> {
     }
 
     pub fn register_eventfd(&self, eventfd: RawFd) -> io::Result<()> {
-        resultify(unsafe {
-            uring_sys::io_uring_register_eventfd(self.ring.as_ptr(), eventfd)
-        })?;
+        resultify(unsafe { uring_sys::io_uring_register_eventfd(self.ring.as_ptr(), eventfd) })?;
         Ok(())
     }
 
@@ -225,14 +226,13 @@ impl<'ring> Registrar<'ring> {
     }
 
     pub fn unregister_eventfd(&self) -> io::Result<()> {
-        resultify(unsafe {
-            uring_sys::io_uring_unregister_eventfd(self.ring.as_ptr())
-        })?;
+        resultify(unsafe { uring_sys::io_uring_unregister_eventfd(self.ring.as_ptr()) })?;
         Ok(())
     }
 
     pub fn register_personality(&self) -> io::Result<Personality> {
-        let id = resultify(unsafe { uring_sys::io_uring_register_personality(self.ring.as_ptr()) })?;
+        let id =
+            resultify(unsafe { uring_sys::io_uring_register_personality(self.ring.as_ptr()) })?;
         debug_assert!(id < u16::MAX as u32);
         Ok(Personality { id: id as u16 })
     }
@@ -252,14 +252,17 @@ impl<'ring> Registrar<'ring> {
 impl fmt::Debug for Registrar<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let fd = unsafe { self.ring.as_ref().ring_fd };
-        f.debug_struct(std::any::type_name::<Self>()).field("fd", &fd).finish()
+        f.debug_struct(std::any::type_name::<Self>())
+            .field("fd", &fd)
+            .finish()
     }
 }
 
-unsafe impl<'ring> Send for Registrar<'ring> { }
-unsafe impl<'ring> Sync for Registrar<'ring> { }
+unsafe impl<'ring> Send for Registrar<'ring> {}
+unsafe impl<'ring> Sync for Registrar<'ring> {}
 
 #[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
+/// An identity for a registered credential.
 pub struct Personality {
     pub(crate) id: u16,
 }
@@ -318,7 +321,10 @@ mod tests {
         let raw_fds = [1, 2];
         let ring = IoUring::new(1).unwrap();
         let _ = ring.registrar().register_files(&raw_fds).unwrap();
-        let _ = ring.registrar().update_registered_files(2, &raw_fds).unwrap();
+        let _ = ring
+            .registrar()
+            .update_registered_files(2, &raw_fds)
+            .unwrap();
     }
 
     #[test]
@@ -326,7 +332,10 @@ mod tests {
     fn slice_len_out_of_bounds_update() {
         let ring = IoUring::new(1).unwrap();
         let _ = ring.registrar().register_files(&[1, 1]).unwrap();
-        let _ = ring.registrar().update_registered_files(0, &[1, 1, 1]).unwrap();
+        let _ = ring
+            .registrar()
+            .update_registered_files(0, &[1, 1, 1])
+            .unwrap();
     }
 
     #[test]
@@ -334,10 +343,16 @@ mod tests {
         let ring = IoUring::new(1).unwrap();
 
         let file = std::fs::File::create("tmp.txt").unwrap();
-        let _ = ring.registrar().register_files(&[file.as_raw_fd()]).unwrap();
+        let _ = ring
+            .registrar()
+            .register_files(&[file.as_raw_fd()])
+            .unwrap();
 
         let new_file = std::fs::File::create("new_tmp.txt").unwrap();
-        let _ = ring.registrar().update_registered_files(0, &[new_file.as_raw_fd()]).unwrap();
+        let _ = ring
+            .registrar()
+            .update_registered_files(0, &[new_file.as_raw_fd()])
+            .unwrap();
 
         let _ = std::fs::remove_file("tmp.txt");
         let _ = std::fs::remove_file("new_tmp.txt");
@@ -349,7 +364,10 @@ mod tests {
         let _ = ring.registrar().register_files(&[-1, -1, -1]).unwrap();
 
         let file = std::fs::File::create("tmp.txt").unwrap();
-        let _ = ring.registrar().update_registered_files(0, &[file.as_raw_fd()]).unwrap();
+        let _ = ring
+            .registrar()
+            .update_registered_files(0, &[file.as_raw_fd()])
+            .unwrap();
         let _ = std::fs::remove_file("tmp.txt");
     }
 }

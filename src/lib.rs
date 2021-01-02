@@ -60,16 +60,16 @@ use std::ptr::{self, NonNull};
 use std::time::Duration;
 
 #[doc(inline)]
-pub use sqe::{SQE, SQEs};
+pub use cqe::{CQEs, CQEsBlocking, CQE};
 #[doc(inline)]
-pub use cqe::{CQE, CQEs, CQEsBlocking};
+pub use sqe::{SQEs, SQE};
 
 pub use completion_queue::CompletionQueue;
 pub use submission_queue::SubmissionQueue;
 
 pub use probe::Probe;
 #[doc(inline)]
-pub use registrar::{Registrar, Personality};
+pub use registrar::{Personality, Registrar};
 
 bitflags::bitflags! {
     /// [`IoUring`] initialization flags for advanced use cases.
@@ -103,9 +103,16 @@ bitflags::bitflags! {
         /// Force the kernel thread created with `SQPOLL` to be bound to the CPU used by the
         /// `SubmissionQueue`. Requires `SQPOLL` set.
         const SQ_AFF    = 1 << 2;   /* sq_thread_cpu is valid */
-
+        /// Create the completion queue with struct io_uring_params.cq_entries entries.
+        /// The value must be greater than entries, and may be rounded up to the next power-of-two.
         const CQSIZE    = 1 << 3;
+        /// Clamp the values for SQ or CQ ring size to the max values instead of returning -EINVAL.
         const CLAMP     = 1 << 4;
+        /// Share the asynchronous backend (kernel work thread) with an existing io_uring instance.
+        ///
+        /// If ATTACH_WQ is set, io_uring_params::wq_fd should be a valid io_uring fd, io-wq of
+        /// which will be shared with the newly created io_uring instance. If the flag is set
+        /// but it can't share io-wq, it fails.
         const ATTACH_WQ = 1 << 5;
     }
 }
@@ -180,18 +187,31 @@ impl IoUring {
 
     /// Creates a new `IoUring` using a set of `SetupFlags` and `SetupFeatures` for advanced
     /// use cases.
-    pub fn new_with_flags(entries: u32, flags: SetupFlags, features: SetupFeatures) -> io::Result<IoUring> {
+    pub fn new_with_flags(
+        entries: u32,
+        flags: SetupFlags,
+        features: SetupFeatures,
+    ) -> io::Result<IoUring> {
+        // TODO: add Builder to support SQ_AFF and ATTACH_WQ, which needs set more fields in the
+        // uring_sys::io_uring_params struct.
+
+        if flags & (SetupFlags::SQ_AFF | SetupFlags::ATTACH_WQ) != SetupFlags::empty() {
+            return Err(io::Error::from_raw_os_error(libc::EINVAL));
+        }
+
         unsafe {
             let mut params: uring_sys::io_uring_params = mem::zeroed();
             params.flags = flags.bits();
             params.features = features.bits();
             let mut ring = MaybeUninit::uninit();
             resultify(uring_sys::io_uring_queue_init_params(
-                    entries as _,
-                    ring.as_mut_ptr(),
-                    &mut params,
+                entries as _,
+                ring.as_mut_ptr(),
+                &mut params,
             ))?;
-            Ok(IoUring { ring: ring.assume_init() })
+            Ok(IoUring {
+                ring: ring.assume_init(),
+            })
         }
     }
 
@@ -212,27 +232,28 @@ impl IoUring {
 
     /// Returns the three constituent parts of the `IoUring`.
     pub fn queues(&mut self) -> (SubmissionQueue<'_>, CompletionQueue<'_>, Registrar<'_>) {
-        (SubmissionQueue::new(&*self), CompletionQueue::new(&*self), Registrar::new(&*self))
+        (
+            SubmissionQueue::new(&*self),
+            CompletionQueue::new(&*self),
+            Registrar::new(&*self),
+        )
     }
 
+    /// Returns a probe structure to detect supported IO operations.
     pub fn probe(&mut self) -> io::Result<Probe> {
         Probe::for_ring(&mut self.ring)
     }
 
     /// Returns the next [`SQE`] which can be prepared to submit.
     pub fn prepare_sqe(&mut self) -> Option<SQE<'_>> {
-        unsafe {
-            submission_queue::prepare_sqe(&mut self.ring)
-        }
+        unsafe { submission_queue::prepare_sqe(&mut self.ring) }
     }
 
     /// Returns the next `count` [`SQE`]s which can be prepared to submit as an iterator.
     ///
     /// See the [`SQEs`] type for more information about how these multiple SQEs can be used.
     pub fn prepare_sqes(&mut self, count: u32) -> Option<SQEs<'_>> {
-        unsafe {
-            submission_queue::prepare_sqes(&mut self.ring.sq, count)
-        }
+        unsafe { submission_queue::prepare_sqes(&mut self.ring.sq, count) }
     }
 
     /// Submit all prepared [`SQE`]s to the kernel.
@@ -242,16 +263,38 @@ impl IoUring {
 
     /// Submit all prepared [`SQE`]s to the kernel and wait until at least `wait_for` events have
     /// completed.
+    ///
+    /// # Return value
+    /// - the number of submitted events, it's safe to reuse SQE entries in the ring. This is true
+    ///   even if the actual IO submission had to be punted to async context, which means that the
+    ///   SQE may in fact not have been submitted yet.
+    /// - an [`io::Error`](std::io::Result) variant if this function encounters any IO errors.
     pub fn submit_sqes_and_wait(&mut self, wait_for: u32) -> io::Result<u32> {
         self.sq().submit_and_wait(wait_for)
     }
 
-
     /// Submit all prepared [`SQE`]s to the kernel and wait until at least `wait_for` events have
     /// completed or `duration` has passed.
-    pub fn submit_sqes_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
-        -> io::Result<u32>
-    {
+    ///
+    /// # Return value
+    /// - the number of submitted events, it's safe to reuse SQE entries in the ring. This is true
+    ///   even if the actual IO submission had to be punted to async context, which means that the
+    ///   SQE may in fact not have been submitted yet.
+    /// - an [`io::Error`](std::io::Result) variant if this function encounters any IO errors.
+    ///
+    /// # Note
+    /// Due to the way timeout is implemented, there are two possible flaws:
+    /// - the timeout is unreliable. When all submission queue is full, it fallbacks to submit()
+    ///   silently.
+    /// - the returned value may be bigger than expectation. There may be one extra descriptor
+    ///   consumed by the timeout mechanism. The user data of descriptor consumed by timeout is
+    ///   set to [`LIBURING_UDATA_TIMEOUT`](uring_sys::LIBURING_UDATA_TIMEOUT)(u64::MAX), so this
+    ///   special value is reserved.
+    pub fn submit_sqes_and_wait_with_timeout(
+        &mut self,
+        wait_for: u32,
+        duration: Duration,
+    ) -> io::Result<u32> {
         self.sq().submit_and_wait_with_timeout(wait_for, duration)
     }
 
@@ -273,20 +316,24 @@ impl IoUring {
     /// Block until at least one [`CQE`] is completed. This will consume that CQE.
     pub fn wait_for_cqe(&mut self) -> io::Result<CQE> {
         let ring = NonNull::from(&self.ring);
-        self.inner_wait_for_cqes(1, ptr::null()).map(|cqe| CQE::new(ring, cqe))
+        self.inner_wait_for_cqes(1, ptr::null())
+            .map(|cqe| CQE::new(ring, cqe))
     }
 
     /// Block until a [`CQE`] is ready or timeout.
-    pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
-        -> io::Result<CQE>
-    {
+    ///
+    /// # Safety
+    /// The timeout is implemented by adding an IORING_OP_TIMEOUT event to the submission queue,
+    /// so it touches both the submission and completion queue and not multi-thread safe.
+    pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration) -> io::Result<CQE> {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
-            tv_nsec: duration.subsec_nanos() as _
+            tv_nsec: duration.subsec_nanos() as _,
         };
 
         let ring = NonNull::from(&self.ring);
-        self.inner_wait_for_cqes(1, &ts).map(|cqe| CQE::new(ring, cqe))
+        self.inner_wait_for_cqes(1, &ts)
+            .map(|cqe| CQE::new(ring, cqe))
     }
 
     /// Returns an iterator of [`CQE`]s which are ready from the kernel.
@@ -305,12 +352,15 @@ impl IoUring {
 
     /// Wait until `count` [`CQE`]s are ready, without submitting any events.
     pub fn wait_for_cqes(&mut self, count: u32) -> io::Result<()> {
-        self.inner_wait_for_cqes(count as _, ptr::null()).map(|_| ())
+        self.inner_wait_for_cqes(count as _, ptr::null())
+            .map(|_| ())
     }
 
-    fn inner_wait_for_cqes(&mut self, count: u32, ts: *const uring_sys::__kernel_timespec)
-        -> io::Result<&mut uring_sys::io_uring_cqe>
-    {
+    fn inner_wait_for_cqes(
+        &mut self,
+        count: u32,
+        ts: *const uring_sys::__kernel_timespec,
+    ) -> io::Result<&mut uring_sys::io_uring_cqe> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
@@ -334,26 +384,32 @@ impl IoUring {
         &mut self.ring
     }
 
+    /// Returns how many descriptors are ready for processing on the completion queue.
     pub fn cq_ready(&mut self) -> u32 {
         self.cq().ready()
     }
 
+    /// Returns the numbers of ready event descriptors on the submission queue.
     pub fn sq_ready(&mut self) -> u32 {
         self.sq().ready()
     }
 
+    /// Returns the numbers of available event descriptors on the submission queue.
     pub fn sq_space_left(&mut self) -> u32 {
         self.sq().space_left()
     }
 
+    /// Returns true if the eventfd notification is currently enabled.
     pub fn cq_eventfd_enabled(&mut self) -> bool {
         self.cq().eventfd_enabled()
     }
 
+    /// Toggle eventfd notification on or off, if an eventfd is registered with the ring.
     pub fn cq_eventfd_toggle(&mut self, enabled: bool) -> io::Result<()> {
         self.cq().eventfd_toggle(enabled)
     }
 
+    /// Returns the RawFd for the io_uring handle.
     pub fn raw_fd(&self) -> RawFd {
         self.ring.ring_fd
     }
@@ -361,7 +417,9 @@ impl IoUring {
 
 impl fmt::Debug for IoUring {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct(std::any::type_name::<Self>()).field("fd", &self.ring.ring_fd).finish()
+        f.debug_struct(std::any::type_name::<Self>())
+            .field("fd", &self.ring.ring_fd)
+            .finish()
     }
 }
 
@@ -371,13 +429,14 @@ impl Drop for IoUring {
     }
 }
 
-unsafe impl Send for IoUring { }
-unsafe impl Sync for IoUring { }
+unsafe impl Send for IoUring {}
+unsafe impl Sync for IoUring {}
 
 fn resultify(x: i32) -> io::Result<u32> {
-    match x >= 0 {
-        true    => Ok(x as u32),
-        false   => Err(io::Error::from_raw_os_error(-x)),
+    if x >= 0 {
+        Ok(x as u32)
+    } else {
+        Err(io::Error::from_raw_os_error(-x))
     }
 }
 
@@ -394,17 +453,26 @@ mod tests {
 
         let mut calls = 0;
         let ret = resultify(side_effect(0, &mut calls));
-        assert!(match ret { Ok(0) => true, _ => false });
+        assert!(match ret {
+            Ok(0) => true,
+            _ => false,
+        });
         assert_eq!(calls, 1);
 
         calls = 0;
         let ret = resultify(side_effect(1, &mut calls));
-        assert!(match ret { Ok(1) => true, _ => false });
+        assert!(match ret {
+            Ok(1) => true,
+            _ => false,
+        });
         assert_eq!(calls, 1);
 
         calls = 0;
         let ret = resultify(side_effect(-1, &mut calls));
-        assert!(match ret { Err(e) if e.raw_os_error() == Some(1) => true, _ => false });
+        assert!(match ret {
+            Err(e) if e.raw_os_error() == Some(1) => true,
+            _ => false,
+        });
         assert_eq!(calls, 1);
     }
 }

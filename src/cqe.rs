@@ -1,9 +1,9 @@
 use std::io;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 
-use super::{IoUring, resultify};
+use super::{resultify, IoUring};
 
 /// A completed IO event.
 #[derive(Debug)]
@@ -24,11 +24,16 @@ impl CQE {
 
     pub fn from_raw_parts(user_data: u64, res: i32, flags: CompletionFlags) -> CQE {
         CQE {
-            user_data, res, flags,
+            user_data,
+            res,
+            flags,
         }
     }
 
-    pub(crate) fn new(ring: NonNull<uring_sys::io_uring>, cqe: &mut uring_sys::io_uring_cqe) -> CQE {
+    pub(crate) fn new(
+        ring: NonNull<uring_sys::io_uring>,
+        cqe: &mut uring_sys::io_uring_cqe,
+    ) -> CQE {
         let user_data = cqe.user_data;
         let res = cqe.res;
         let flags = CompletionFlags::from_bits_truncate(cqe.flags);
@@ -61,8 +66,8 @@ impl CQE {
     }
 }
 
-unsafe impl Send for CQE { }
-unsafe impl Sync for CQE { }
+unsafe impl Send for CQE {}
+unsafe impl Sync for CQE {}
 
 /// An iterator of [`CQE`]s from the [`CompletionQueue`](crate::CompletionQueue).
 ///
@@ -75,7 +80,11 @@ pub struct CQEs<'a> {
 
 impl<'a> CQEs<'a> {
     pub(crate) fn new(ring: NonNull<uring_sys::io_uring>) -> CQEs<'a> {
-        CQEs { ring, ready: 0, marker: PhantomData }
+        CQEs {
+            ring,
+            ready: 0,
+            marker: PhantomData,
+        }
     }
 
     #[inline(always)]
@@ -114,7 +123,6 @@ impl Iterator for CQEs<'_> {
     }
 }
 
-
 /// An iterator of [`CQE`]s from the [`CompletionQueue`](crate::CompletionQueue).
 ///
 /// This iterator will never be exhausted; if there are no `CQE`s ready, it will block until there
@@ -128,7 +136,12 @@ pub struct CQEsBlocking<'a> {
 
 impl<'a> CQEsBlocking<'a> {
     pub(crate) fn new(ring: NonNull<uring_sys::io_uring>, wait_for: u32) -> CQEsBlocking<'a> {
-        CQEsBlocking { ring, ready: 0, wait_for, marker: PhantomData }
+        CQEsBlocking {
+            ring,
+            ready: 0,
+            wait_for,
+            marker: PhantomData,
+        }
     }
 
     #[inline(always)]
@@ -155,12 +168,10 @@ impl<'a> CQEsBlocking<'a> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
-            resultify(uring_sys::io_uring_wait_cqes(
+            resultify(uring_sys::io_uring_wait_cqe_nr(
                 self.ring.as_ptr(),
                 cqe.as_mut_ptr(),
                 self.wait_for as _,
-                ptr::null(),
-                ptr::null(),
             ))?;
 
             Ok(&mut *cqe.assume_init())
@@ -176,7 +187,7 @@ impl Iterator for CQEsBlocking<'_> {
             self.ready = self.ready();
             if self.ready == 0 {
                 let ring = self.ring;
-                return Some(self.wait().map(|cqe| CQE::new(ring, cqe)))
+                return Some(self.wait().map(|cqe| CQE::new(ring, cqe)));
             }
         }
 

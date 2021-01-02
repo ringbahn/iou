@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::io::{self, Read};
-use std::path::PathBuf;
 use std::os::unix::io::AsRawFd;
+use std::path::PathBuf;
 
 const TEXT: &[u8] = b"I really wanna stop
 But I just gotta taste for it
@@ -23,11 +23,10 @@ fn vectored_write_test() -> io::Result<()> {
     path.push("vectored.tmp");
 
     let _ = fs::remove_file(&path);
-    
+
     let n = {
         let mut io_uring = iou::IoUring::new(32)?;
         let bufs = [io::IoSlice::new(TEXT)];
-
 
         let file = File::create(&path)?;
         unsafe {
@@ -61,7 +60,7 @@ fn write_test() -> io::Result<()> {
     path.push("text.tmp");
 
     let _ = fs::remove_file(&path);
-    
+
     let n = {
         let mut io_uring = iou::IoUring::new(32)?;
 
@@ -89,7 +88,6 @@ fn write_test() -> io::Result<()> {
     Ok(())
 }
 
-
 #[test]
 fn write_registered_buf() -> io::Result<()> {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -100,7 +98,8 @@ fn write_registered_buf() -> io::Result<()> {
 
     let mut io_uring = iou::IoUring::new(32)?;
     let bufs = vec![Box::new([0u8; 4096]) as Box<[u8]>];
-    let mut buf: iou::registrar::RegisteredBuf = io_uring.registrar().register_buffers(bufs)?.next().unwrap();
+    let mut buf: iou::registrar::RegisteredBuf =
+        io_uring.registrar().register_buffers(bufs)?.next().unwrap();
 
     buf.as_mut().slice_to_mut(TEXT.len()).copy_from_slice(TEXT);
 
