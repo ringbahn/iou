@@ -693,7 +693,8 @@ impl<'ring> SQEs<'ring> {
     /// additional [`SQE`]s will return `None`.
     pub fn single(&mut self) -> Option<SQE<'ring>> {
         let mut next = None;
-        while let Some(sqe) = self.consume() {
+        while let Some(mut sqe) = self.consume() {
+            unsafe { sqe.prep_nop() };
             next = Some(sqe)
         }
         next
@@ -722,10 +723,7 @@ impl<'ring> SQEs<'ring> {
 
     fn consume(&mut self) -> Option<SQE<'ring>> {
         self.sqes.next().map(|sqe| {
-            unsafe {
-                *sqe = mem::zeroed();
-                uring_sys::io_uring_prep_nop(sqe);
-            }
+            unsafe { *sqe = mem::zeroed() };
             SQE { sqe }
         })
     }
