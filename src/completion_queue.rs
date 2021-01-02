@@ -2,7 +2,7 @@ use std::fmt;
 use std::io;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 
 use super::{resultify, CQEs, CQEsBlocking, IoUring, CQE};
 
@@ -61,12 +61,10 @@ impl<'ring> CompletionQueue<'ring> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
-            resultify(uring_sys::io_uring_wait_cqes(
+            resultify(uring_sys::io_uring_wait_cqe_nr(
                 self.ring.as_ptr(),
                 cqe.as_mut_ptr(),
                 count as _,
-                ptr::null(),
-                ptr::null(),
             ))?;
 
             Ok(&mut *cqe.assume_init())
