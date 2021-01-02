@@ -722,7 +722,10 @@ impl<'ring> SQEs<'ring> {
 
     fn consume(&mut self) -> Option<SQE<'ring>> {
         self.sqes.next().map(|sqe| {
-            unsafe { uring_sys::io_uring_prep_nop(sqe) }
+            unsafe {
+                *sqe = mem::zeroed();
+                uring_sys::io_uring_prep_nop(sqe);
+            }
             SQE { sqe }
         })
     }
