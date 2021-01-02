@@ -758,6 +758,17 @@ impl<'ring> Iterator for HardLinked<'ring, '_> {
     }
 }
 
+impl<'ring> Drop for HardLinked<'ring, '_> {
+    fn drop(&mut self) {
+        // Ensure that all left descriptors are properly consumed.
+        for mut sqe in &mut self.sqes {
+            unsafe {
+                sqe.prep_nop();
+            }
+        }
+    }
+}
+
 pub struct HardLinkedSQE<'ring> {
     sqe: SQE<'ring>,
     is_final: bool,
@@ -804,6 +815,17 @@ impl<'ring> Iterator for SoftLinked<'ring, '_> {
         self.sqes
             .consume()
             .map(|sqe| SoftLinkedSQE { sqe, is_final })
+    }
+}
+
+impl<'ring> Drop for SoftLinked<'ring, '_> {
+    fn drop(&mut self) {
+        // Ensure that all left descriptors are properly consumed.
+        for mut sqe in &mut self.sqes {
+            unsafe {
+                sqe.prep_nop();
+            }
+        }
     }
 }
 
