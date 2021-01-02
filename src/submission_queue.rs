@@ -90,15 +90,43 @@ impl<'ring> SubmissionQueue<'ring> {
 
     /// Submit all events in the queue. Returns the number of submitted events.
     ///
-    /// If this function encounters any IO errors an [`io::Error`](std::io::Result) variant is returned.
+    /// # Return value
+    /// - the number of submitted events, it's safe to reuse SQE entries in the ring. This is true
+    ///   even if the actual IO submission had to be punted to async context, which means that the
+    ///   SQE may in fact not have been submitted yet.
+    /// - an [`io::Error`](std::io::Result) variant if this function encounters any IO errors.
     pub fn submit(&mut self) -> io::Result<u32> {
         resultify(unsafe { uring_sys::io_uring_submit(self.ring.as_ptr()) })
     }
 
+    /// Submit all events in the queue and wait for `wait_for` event completions before returning.
+    ///
+    /// # Return value
+    /// - the number of submitted events, it's safe to reuse SQE entries in the ring. This is true
+    ///   even if the actual IO submission had to be punted to async context, which means that the
+    ///   SQE may in fact not have been submitted yet.
+    /// - an [`io::Error`](std::io::Result) variant if this function encounters any IO errors.
     pub fn submit_and_wait(&mut self, wait_for: u32) -> io::Result<u32> {
         resultify(unsafe { uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) })
     }
 
+    /// Submit all events in the queue and wait for `wait_for` event completions before returning,
+    /// timeout after waiting for `duration`.
+    ///
+    /// # Return value
+    /// - the number of submitted events, it's safe to reuse SQE entries in the ring. This is true
+    ///   even if the actual IO submission had to be punted to async context, which means that the
+    ///   SQE may in fact not have been submitted yet.
+    /// - an [`io::Error`](std::io::Result) variant if this function encounters any IO errors.
+    ///
+    /// # Note
+    /// Due to the way timeout is implemented, there are two possible flaws:
+    /// - the timeout is unreliable. When all submission queue is full, it fallbacks to submit()
+    ///   silently.
+    /// - the returned value may be bigger than expectation. There may be one extra descriptor
+    ///   consumed by the timeout mechanism. The user data of descriptor consumed by timeout is
+    ///   set to [`LIBURING_UDATA_TIMEOUT`](uring_sys::LIBURING_UDATA_TIMEOUT)(u64::MAX), so this
+    ///   special value is reserved.
     pub fn submit_and_wait_with_timeout(
         &mut self,
         wait_for: u32,
@@ -111,7 +139,6 @@ impl<'ring> SubmissionQueue<'ring> {
 
         loop {
             if let Some(mut sqe) = self.prepare_sqe() {
-                sqe.clear();
                 unsafe {
                     sqe.prep_timeout(&ts, 0, crate::sqe::TimeoutFlags::empty());
                     sqe.set_user_data(uring_sys::LIBURING_UDATA_TIMEOUT);
@@ -126,10 +153,12 @@ impl<'ring> SubmissionQueue<'ring> {
         }
     }
 
+    /// Returns the numbers of ready event descriptors on the submission queue.
     pub fn ready(&self) -> u32 {
         unsafe { uring_sys::io_uring_sq_ready(self.ring.as_ptr()) as u32 }
     }
 
+    /// Returns the numbers of available event descriptors on the submission queue.
     pub fn space_left(&self) -> u32 {
         unsafe { uring_sys::io_uring_sq_space_left(self.ring.as_ptr()) as u32 }
     }

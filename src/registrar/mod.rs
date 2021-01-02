@@ -262,6 +262,7 @@ unsafe impl<'ring> Send for Registrar<'ring> {}
 unsafe impl<'ring> Sync for Registrar<'ring> {}
 
 #[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Clone, Copy)]
+/// An identity for a registered credential.
 pub struct Personality {
     pub(crate) id: u16,
 }

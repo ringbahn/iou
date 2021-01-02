@@ -618,14 +618,19 @@ bitflags::bitflags! {
         const FIXED_FILE    = 1 << 0;   /* use fixed fileset */
         /// Submit this event only after completing all ongoing submission events.
         const IO_DRAIN      = 1 << 1;   /* issue after inflight IO */
-        /// Force the next submission event to wait until this event has completed sucessfully.
+        /// Force the next submission event to wait until this event has completed successfully.
         ///
         /// An event's link only applies to the next event, but link chains can be
         /// arbitrarily long.
         const IO_LINK       = 1 << 2;   /* next IO depends on this one */
-
+        /// Force the next submission event to wait until this event has completed.
+        ///
+        /// An event's link only applies to the next event, but link chains can be arbitrarily long.
+        /// The next submission event will be executed no matter current event succeeds or fails.
         const IO_HARDLINK   = 1 << 3;
+        /// Execute the event in asynchronous mode without trying non-blocking mode first.
         const ASYNC         = 1 << 4;
+
         const BUFFER_SELECT = 1 << 5;
     }
 }
@@ -738,6 +743,9 @@ impl<'ring> Iterator for SQEs<'ring> {
 }
 
 /// An Iterator of [`SQE`]s which will be hard linked together.
+///
+/// All HardLinked objects must be dropped before submitting the submission queue to ensure
+/// correctly handling of the IO chain.
 pub struct HardLinked<'ring, 'a> {
     sqes: &'a mut SQEs<'ring>,
 }
@@ -770,6 +778,10 @@ impl<'ring> Drop for HardLinked<'ring, '_> {
     }
 }
 
+/// Represent a non-tail event descriptor on an hardly linked IO chain.
+///
+/// All HardLinkedSQE objects must be dropped before submitting the submission queue to ensure
+/// correctly handling of the IO_HARDLINK flag.
 pub struct HardLinkedSQE<'ring> {
     sqe: SQE<'ring>,
     is_final: bool,
@@ -789,6 +801,10 @@ impl<'ring> DerefMut for HardLinkedSQE<'ring> {
     }
 }
 
+// TODO: any better way to set the IO_HARDLINK flag?
+// If submit() is called before dropping the HardLinkedSQE object, it may caused race windows
+// under which the kernel observes malformed IO chains. This type of race window will be very hard
+// to root cause.
 impl<'ring> Drop for HardLinkedSQE<'ring> {
     fn drop(&mut self) {
         if !self.is_final {
@@ -798,6 +814,9 @@ impl<'ring> Drop for HardLinkedSQE<'ring> {
 }
 
 /// An Iterator of [`SQE`]s which will be soft linked together.
+///
+/// All SoftLinked objects must be dropped before submitting the submission queue to ensure
+/// correctly handling of the IO chain.
 pub struct SoftLinked<'ring, 'a> {
     sqes: &'a mut SQEs<'ring>,
 }
@@ -830,6 +849,10 @@ impl<'ring> Drop for SoftLinked<'ring, '_> {
     }
 }
 
+/// Represent a non-tail event descriptor on an softly linked IO chain.
+///
+/// All SoftLinkedSQE objects must be dropped before submitting the submission queue to ensure
+/// correctly handling of the IO_HARDLINK flag.
 pub struct SoftLinkedSQE<'ring> {
     sqe: SQE<'ring>,
     is_final: bool,
@@ -849,6 +872,10 @@ impl<'ring> DerefMut for SoftLinkedSQE<'ring> {
     }
 }
 
+// TODO: any better way to set the IO_LINK flag?
+// If submit() is called before dropping the SoftLinkedSQE object, it may caused race windows
+// under which the kernel observes malformed IO chains. This type of race window will be very hard
+// to root cause.
 impl<'ring> Drop for SoftLinkedSQE<'ring> {
     fn drop(&mut self) {
         if !self.is_final {

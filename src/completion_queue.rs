@@ -87,14 +87,17 @@ impl<'ring> CompletionQueue<'ring> {
         CQEsBlocking::new(self.ring, wait_for)
     }
 
+    /// Returns how many descriptors are ready for processing on the completion queue.
     pub fn ready(&self) -> u32 {
         unsafe { uring_sys::io_uring_cq_ready(self.ring.as_ptr()) }
     }
 
+    /// Returns true if the eventfd notification is currently enabled.
     pub fn eventfd_enabled(&self) -> bool {
         unsafe { uring_sys::io_uring_cq_eventfd_enabled(self.ring.as_ptr()) }
     }
 
+    /// Toggle eventfd notification on or off, if an eventfd is registered with the ring.
     pub fn eventfd_toggle(&mut self, enabled: bool) -> io::Result<()> {
         resultify(unsafe { uring_sys::io_uring_cq_eventfd_toggle(self.ring.as_ptr(), enabled) })?;
         Ok(())

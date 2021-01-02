@@ -103,9 +103,16 @@ bitflags::bitflags! {
         /// Force the kernel thread created with `SQPOLL` to be bound to the CPU used by the
         /// `SubmissionQueue`. Requires `SQPOLL` set.
         const SQ_AFF    = 1 << 2;   /* sq_thread_cpu is valid */
-
+        /// Create the completion queue with struct io_uring_params.cq_entries entries.
+        /// The value must be greater than entries, and may be rounded up to the next power-of-two.
         const CQSIZE    = 1 << 3;
+        /// Clamp the values for SQ or CQ ring size to the max values instead of returning -EINVAL.
         const CLAMP     = 1 << 4;
+        /// Share the asynchronous backend (kernel work thread) with an existing io_uring instance.
+        ///
+        /// If ATTACH_WQ is set, io_uring_params::wq_fd should be a valid io_uring fd, io-wq of
+        /// which will be shared with the newly created io_uring instance. If the flag is set
+        /// but it can't share io-wq, it fails.
         const ATTACH_WQ = 1 << 5;
     }
 }
@@ -232,6 +239,7 @@ impl IoUring {
         )
     }
 
+    /// Returns a probe structure to detect supported IO operations.
     pub fn probe(&mut self) -> io::Result<Probe> {
         Probe::for_ring(&mut self.ring)
     }
@@ -255,12 +263,33 @@ impl IoUring {
 
     /// Submit all prepared [`SQE`]s to the kernel and wait until at least `wait_for` events have
     /// completed.
+    ///
+    /// # Return value
+    /// - the number of submitted events, it's safe to reuse SQE entries in the ring. This is true
+    ///   even if the actual IO submission had to be punted to async context, which means that the
+    ///   SQE may in fact not have been submitted yet.
+    /// - an [`io::Error`](std::io::Result) variant if this function encounters any IO errors.
     pub fn submit_sqes_and_wait(&mut self, wait_for: u32) -> io::Result<u32> {
         self.sq().submit_and_wait(wait_for)
     }
 
     /// Submit all prepared [`SQE`]s to the kernel and wait until at least `wait_for` events have
     /// completed or `duration` has passed.
+    ///
+    /// # Return value
+    /// - the number of submitted events, it's safe to reuse SQE entries in the ring. This is true
+    ///   even if the actual IO submission had to be punted to async context, which means that the
+    ///   SQE may in fact not have been submitted yet.
+    /// - an [`io::Error`](std::io::Result) variant if this function encounters any IO errors.
+    ///
+    /// # Note
+    /// Due to the way timeout is implemented, there are two possible flaws:
+    /// - the timeout is unreliable. When all submission queue is full, it fallbacks to submit()
+    ///   silently.
+    /// - the returned value may be bigger than expectation. There may be one extra descriptor
+    ///   consumed by the timeout mechanism. The user data of descriptor consumed by timeout is
+    ///   set to [`LIBURING_UDATA_TIMEOUT`](uring_sys::LIBURING_UDATA_TIMEOUT)(u64::MAX), so this
+    ///   special value is reserved.
     pub fn submit_sqes_and_wait_with_timeout(
         &mut self,
         wait_for: u32,
@@ -292,6 +321,10 @@ impl IoUring {
     }
 
     /// Block until a [`CQE`] is ready or timeout.
+    ///
+    /// # Safety
+    /// The timeout is implemented by adding an IORING_OP_TIMEOUT event to the submission queue,
+    /// so it touches both the submission and completion queue and not multi-thread safe.
     pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration) -> io::Result<CQE> {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
@@ -351,26 +384,32 @@ impl IoUring {
         &mut self.ring
     }
 
+    /// Returns how many descriptors are ready for processing on the completion queue.
     pub fn cq_ready(&mut self) -> u32 {
         self.cq().ready()
     }
 
+    /// Returns the numbers of ready event descriptors on the submission queue.
     pub fn sq_ready(&mut self) -> u32 {
         self.sq().ready()
     }
 
+    /// Returns the numbers of available event descriptors on the submission queue.
     pub fn sq_space_left(&mut self) -> u32 {
         self.sq().space_left()
     }
 
+    /// Returns true if the eventfd notification is currently enabled.
     pub fn cq_eventfd_enabled(&mut self) -> bool {
         self.cq().eventfd_enabled()
     }
 
+    /// Toggle eventfd notification on or off, if an eventfd is registered with the ring.
     pub fn cq_eventfd_toggle(&mut self, enabled: bool) -> io::Result<()> {
         self.cq().eventfd_toggle(enabled)
     }
 
+    /// Returns the RawFd for the io_uring handle.
     pub fn raw_fd(&self) -> RawFd {
         self.ring.ring_fd
     }
