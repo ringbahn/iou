@@ -11,14 +11,18 @@ impl Probe {
     pub fn new() -> io::Result<Probe> {
         unsafe {
             let probe = uring_sys::io_uring_get_probe();
-            NonNull::new(probe).ok_or_else(io::Error::last_os_error).map(|probe| Probe { probe })
+            NonNull::new(probe)
+                .ok_or_else(io::Error::last_os_error)
+                .map(|probe| Probe { probe })
         }
     }
 
     pub(crate) fn for_ring(ring: *mut uring_sys::io_uring) -> io::Result<Probe> {
         unsafe {
             let probe = uring_sys::io_uring_get_probe_ring(ring);
-            NonNull::new(probe).ok_or_else(io::Error::last_os_error).map(|probe| Probe { probe })
+            NonNull::new(probe)
+                .ok_or_else(io::Error::last_os_error)
+                .map(|probe| Probe { probe })
         }
     }
 

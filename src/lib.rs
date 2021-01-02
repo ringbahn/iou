@@ -60,16 +60,16 @@ use std::ptr::{self, NonNull};
 use std::time::Duration;
 
 #[doc(inline)]
-pub use sqe::{SQE, SQEs};
+pub use cqe::{CQEs, CQEsBlocking, CQE};
 #[doc(inline)]
-pub use cqe::{CQE, CQEs, CQEsBlocking};
+pub use sqe::{SQEs, SQE};
 
 pub use completion_queue::CompletionQueue;
 pub use submission_queue::SubmissionQueue;
 
 pub use probe::Probe;
 #[doc(inline)]
-pub use registrar::{Registrar, Personality};
+pub use registrar::{Personality, Registrar};
 
 bitflags::bitflags! {
     /// [`IoUring`] initialization flags for advanced use cases.
@@ -180,18 +180,24 @@ impl IoUring {
 
     /// Creates a new `IoUring` using a set of `SetupFlags` and `SetupFeatures` for advanced
     /// use cases.
-    pub fn new_with_flags(entries: u32, flags: SetupFlags, features: SetupFeatures) -> io::Result<IoUring> {
+    pub fn new_with_flags(
+        entries: u32,
+        flags: SetupFlags,
+        features: SetupFeatures,
+    ) -> io::Result<IoUring> {
         unsafe {
             let mut params: uring_sys::io_uring_params = mem::zeroed();
             params.flags = flags.bits();
             params.features = features.bits();
             let mut ring = MaybeUninit::uninit();
             resultify(uring_sys::io_uring_queue_init_params(
-                    entries as _,
-                    ring.as_mut_ptr(),
-                    &mut params,
+                entries as _,
+                ring.as_mut_ptr(),
+                &mut params,
             ))?;
-            Ok(IoUring { ring: ring.assume_init() })
+            Ok(IoUring {
+                ring: ring.assume_init(),
+            })
         }
     }
 
@@ -212,7 +218,11 @@ impl IoUring {
 
     /// Returns the three constituent parts of the `IoUring`.
     pub fn queues(&mut self) -> (SubmissionQueue<'_>, CompletionQueue<'_>, Registrar<'_>) {
-        (SubmissionQueue::new(&*self), CompletionQueue::new(&*self), Registrar::new(&*self))
+        (
+            SubmissionQueue::new(&*self),
+            CompletionQueue::new(&*self),
+            Registrar::new(&*self),
+        )
     }
 
     pub fn probe(&mut self) -> io::Result<Probe> {
@@ -221,18 +231,14 @@ impl IoUring {
 
     /// Returns the next [`SQE`] which can be prepared to submit.
     pub fn prepare_sqe(&mut self) -> Option<SQE<'_>> {
-        unsafe {
-            submission_queue::prepare_sqe(&mut self.ring)
-        }
+        unsafe { submission_queue::prepare_sqe(&mut self.ring) }
     }
 
     /// Returns the next `count` [`SQE`]s which can be prepared to submit as an iterator.
     ///
     /// See the [`SQEs`] type for more information about how these multiple SQEs can be used.
     pub fn prepare_sqes(&mut self, count: u32) -> Option<SQEs<'_>> {
-        unsafe {
-            submission_queue::prepare_sqes(&mut self.ring.sq, count)
-        }
+        unsafe { submission_queue::prepare_sqes(&mut self.ring.sq, count) }
     }
 
     /// Submit all prepared [`SQE`]s to the kernel.
@@ -246,12 +252,13 @@ impl IoUring {
         self.sq().submit_and_wait(wait_for)
     }
 
-
     /// Submit all prepared [`SQE`]s to the kernel and wait until at least `wait_for` events have
     /// completed or `duration` has passed.
-    pub fn submit_sqes_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
-        -> io::Result<u32>
-    {
+    pub fn submit_sqes_and_wait_with_timeout(
+        &mut self,
+        wait_for: u32,
+        duration: Duration,
+    ) -> io::Result<u32> {
         self.sq().submit_and_wait_with_timeout(wait_for, duration)
     }
 
@@ -273,20 +280,20 @@ impl IoUring {
     /// Block until at least one [`CQE`] is completed. This will consume that CQE.
     pub fn wait_for_cqe(&mut self) -> io::Result<CQE> {
         let ring = NonNull::from(&self.ring);
-        self.inner_wait_for_cqes(1, ptr::null()).map(|cqe| CQE::new(ring, cqe))
+        self.inner_wait_for_cqes(1, ptr::null())
+            .map(|cqe| CQE::new(ring, cqe))
     }
 
     /// Block until a [`CQE`] is ready or timeout.
-    pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration)
-        -> io::Result<CQE>
-    {
+    pub fn wait_for_cqe_with_timeout(&mut self, duration: Duration) -> io::Result<CQE> {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
-            tv_nsec: duration.subsec_nanos() as _
+            tv_nsec: duration.subsec_nanos() as _,
         };
 
         let ring = NonNull::from(&self.ring);
-        self.inner_wait_for_cqes(1, &ts).map(|cqe| CQE::new(ring, cqe))
+        self.inner_wait_for_cqes(1, &ts)
+            .map(|cqe| CQE::new(ring, cqe))
     }
 
     /// Returns an iterator of [`CQE`]s which are ready from the kernel.
@@ -305,12 +312,15 @@ impl IoUring {
 
     /// Wait until `count` [`CQE`]s are ready, without submitting any events.
     pub fn wait_for_cqes(&mut self, count: u32) -> io::Result<()> {
-        self.inner_wait_for_cqes(count as _, ptr::null()).map(|_| ())
+        self.inner_wait_for_cqes(count as _, ptr::null())
+            .map(|_| ())
     }
 
-    fn inner_wait_for_cqes(&mut self, count: u32, ts: *const uring_sys::__kernel_timespec)
-        -> io::Result<&mut uring_sys::io_uring_cqe>
-    {
+    fn inner_wait_for_cqes(
+        &mut self,
+        count: u32,
+        ts: *const uring_sys::__kernel_timespec,
+    ) -> io::Result<&mut uring_sys::io_uring_cqe> {
         unsafe {
             let mut cqe = MaybeUninit::uninit();
 
@@ -361,7 +371,9 @@ impl IoUring {
 
 impl fmt::Debug for IoUring {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct(std::any::type_name::<Self>()).field("fd", &self.ring.ring_fd).finish()
+        f.debug_struct(std::any::type_name::<Self>())
+            .field("fd", &self.ring.ring_fd)
+            .finish()
     }
 }
 
@@ -371,13 +383,13 @@ impl Drop for IoUring {
     }
 }
 
-unsafe impl Send for IoUring { }
-unsafe impl Sync for IoUring { }
+unsafe impl Send for IoUring {}
+unsafe impl Sync for IoUring {}
 
 fn resultify(x: i32) -> io::Result<u32> {
     match x >= 0 {
-        true    => Ok(x as u32),
-        false   => Err(io::Error::from_raw_os_error(-x)),
+        true => Ok(x as u32),
+        false => Err(io::Error::from_raw_os_error(-x)),
     }
 }
 
@@ -394,17 +406,26 @@ mod tests {
 
         let mut calls = 0;
         let ret = resultify(side_effect(0, &mut calls));
-        assert!(match ret { Ok(0) => true, _ => false });
+        assert!(match ret {
+            Ok(0) => true,
+            _ => false,
+        });
         assert_eq!(calls, 1);
 
         calls = 0;
         let ret = resultify(side_effect(1, &mut calls));
-        assert!(match ret { Ok(1) => true, _ => false });
+        assert!(match ret {
+            Ok(1) => true,
+            _ => false,
+        });
         assert_eq!(calls, 1);
 
         calls = 0;
         let ret = resultify(side_effect(-1, &mut calls));
-        assert!(match ret { Err(e) if e.raw_os_error() == Some(1) => true, _ => false });
+        assert!(match ret {
+            Err(e) if e.raw_os_error() == Some(1) => true,
+            _ => false,
+        });
         assert_eq!(calls, 1);
     }
 }

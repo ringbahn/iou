@@ -15,10 +15,10 @@ pub const PLACEHOLDER_FD: RawFd = -1;
 ///
 /// Submission event prep methods on `RegisteredFd` will ensure that the submission event's
 /// `SubmissionFlags::FIXED_FILE` flag is properly set.
-pub type RegisteredFd           = Registered<RawFd>;
-pub type RegisteredBuf          = Registered<Box<[u8]>>;
-pub type RegisteredBufRef<'a>   = Registered<&'a [u8]>;
-pub type RegisteredBufMut<'a>   = Registered<&'a mut [u8]>;
+pub type RegisteredFd = Registered<RawFd>;
+pub type RegisteredBuf = Registered<Box<[u8]>>;
+pub type RegisteredBufRef<'a> = Registered<&'a [u8]>;
+pub type RegisteredBufMut<'a> = Registered<&'a mut [u8]>;
 
 /// An object registered with an io-uring instance through a [`Registrar`](crate::Registrar).
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -188,7 +188,7 @@ impl UringFd for RawFd {
         *self
     }
 
-    fn update_sqe(&self, _: &mut SQE<'_>) { }
+    fn update_sqe(&self, _: &mut SQE<'_>) {}
 }
 
 impl UringFd for RegisteredFd {
@@ -197,7 +197,9 @@ impl UringFd for RegisteredFd {
     }
 
     fn update_sqe(&self, sqe: &mut SQE<'_>) {
-        unsafe { sqe.raw_mut().fd = self.index as RawFd; }
+        unsafe {
+            sqe.raw_mut().fd = self.index as RawFd;
+        }
         sqe.set_fixed_file();
     }
 }
@@ -220,7 +222,7 @@ impl UringReadBuf for RegisteredBufMut<'_> {
             self.data.as_mut_ptr() as _,
             self.data.len() as _,
             offset as _,
-            self.index() as _
+            self.index() as _,
         );
         fd.update_sqe(sqe);
     }
@@ -286,7 +288,7 @@ impl UringWriteBuf for RegisteredBufRef<'_> {
             self.data.as_ptr() as _,
             self.data.len() as _,
             offset as _,
-            self.index() as _
+            self.index() as _,
         );
         fd.update_sqe(sqe);
     }

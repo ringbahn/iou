@@ -1,4 +1,4 @@
-use nix::sys::socket::{AddressFamily, SockProtocol, SockType, InetAddr, SockFlag};
+use nix::sys::socket::{AddressFamily, InetAddr, SockFlag, SockProtocol, SockType};
 use std::{io, net::TcpListener};
 
 #[test]
@@ -14,7 +14,7 @@ fn connect() -> io::Result<()> {
         SockFlag::SOCK_NONBLOCK,
         SockProtocol::Tcp,
     )
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to create socket"))?;
+    .map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to create socket"))?;
 
     let mut ring = iou::IoUring::new(1)?;
     let mut sqe = ring.prepare_sqe().expect("failed to get sqe");

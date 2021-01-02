@@ -1,10 +1,10 @@
+use iou::sqe::SockAddr;
 use nix::sys::socket::InetAddr;
 use std::{
     io::{self, Read, Write},
     net::{TcpListener, TcpStream},
     os::unix::io::{AsRawFd, FromRawFd},
 };
-use iou::sqe::SockAddr;
 
 const MESSAGE: &'static [u8] = b"Hello World";
 

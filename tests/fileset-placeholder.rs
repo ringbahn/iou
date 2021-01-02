@@ -1,4 +1,4 @@
-use iou::{IoUring, registrar::RegisteredFd};
+use iou::{registrar::RegisteredFd, IoUring};
 use std::fs::File;
 use std::io::{IoSlice, Read};
 use std::os::unix::io::AsRawFd;
@@ -20,7 +20,9 @@ fn main() -> std::io::Result<()> {
 
     // update a random fileset entry with a valid file
     let file = std::fs::File::create(&path)?;
-    let reg_file = registrar.update_registered_files(713, &[file.as_raw_fd()])?.collect::<Vec<_>>()[0];
+    let reg_file = registrar
+        .update_registered_files(713, &[file.as_raw_fd()])?
+        .collect::<Vec<_>>()[0];
     assert!(!reg_file.is_placeholder());
 
     let bufs = &[IoSlice::new(&TEXT)];

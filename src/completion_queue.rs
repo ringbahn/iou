@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 
-use super::{IoUring, CQE, CQEs, CQEsBlocking, resultify};
+use super::{resultify, CQEs, CQEsBlocking, IoUring, CQE};
 
 /// The queue of completed IO events.
 ///
@@ -106,9 +106,11 @@ impl<'ring> CompletionQueue<'ring> {
 impl fmt::Debug for CompletionQueue<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let fd = unsafe { self.ring.as_ref().ring_fd };
-        f.debug_struct(std::any::type_name::<Self>()).field("fd", &fd).finish()
+        f.debug_struct(std::any::type_name::<Self>())
+            .field("fd", &fd)
+            .finish()
     }
 }
 
-unsafe impl<'ring> Send for CompletionQueue<'ring> { }
-unsafe impl<'ring> Sync for CompletionQueue<'ring> { }
+unsafe impl<'ring> Send for CompletionQueue<'ring> {}
+unsafe impl<'ring> Sync for CompletionQueue<'ring> {}

@@ -35,7 +35,6 @@ fn exhaust_queue_with_prepare_sqes() {
             for counter in base..counter {
                 let cqe = io_uring.peek_for_cqe().unwrap();
                 assert_eq!(cqe.user_data(), counter);
-
             }
         }
     }

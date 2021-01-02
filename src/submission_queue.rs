@@ -1,12 +1,12 @@
 use std::fmt;
 use std::io;
-use std::ptr::NonNull;
 use std::marker::PhantomData;
+use std::ptr::NonNull;
 use std::slice;
-use std::time::Duration;
 use std::sync::atomic::{self, Ordering};
+use std::time::Duration;
 
-use super::{IoUring, SQE, SQEs, resultify};
+use super::{resultify, IoUring, SQEs, SQE};
 
 /// The queue of pending IO events.
 ///
@@ -77,9 +77,7 @@ impl<'ring> SubmissionQueue<'ring> {
     /// # }
     ///
     pub fn prepare_sqe<'a>(&'a mut self) -> Option<SQE<'a>> {
-        unsafe {
-            prepare_sqe(self.ring.as_mut())
-        }
+        unsafe { prepare_sqe(self.ring.as_mut()) }
     }
 
     pub fn prepare_sqes<'a>(&'a mut self, count: u32) -> Option<SQEs<'a>> {
@@ -100,12 +98,14 @@ impl<'ring> SubmissionQueue<'ring> {
         resultify(unsafe { uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _) })
     }
 
-    pub fn submit_and_wait_with_timeout(&mut self, wait_for: u32, duration: Duration)
-        -> io::Result<u32>
-    {
+    pub fn submit_and_wait_with_timeout(
+        &mut self,
+        wait_for: u32,
+        duration: Duration,
+    ) -> io::Result<u32> {
         let ts = uring_sys::__kernel_timespec {
             tv_sec: duration.as_secs() as _,
-            tv_nsec: duration.subsec_nanos() as _
+            tv_nsec: duration.subsec_nanos() as _,
         };
 
         loop {
@@ -114,7 +114,10 @@ impl<'ring> SubmissionQueue<'ring> {
                 unsafe {
                     sqe.prep_timeout(&ts, 0, crate::sqe::TimeoutFlags::empty());
                     sqe.set_user_data(uring_sys::LIBURING_UDATA_TIMEOUT);
-                    return resultify(uring_sys::io_uring_submit_and_wait(self.ring.as_ptr(), wait_for as _))
+                    return resultify(uring_sys::io_uring_submit_and_wait(
+                        self.ring.as_ptr(),
+                        wait_for as _,
+                    ));
                 }
             }
 
@@ -134,12 +137,14 @@ impl<'ring> SubmissionQueue<'ring> {
 impl fmt::Debug for SubmissionQueue<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let fd = unsafe { self.ring.as_ref().ring_fd };
-        f.debug_struct(std::any::type_name::<Self>()).field("fd", &fd).finish()
+        f.debug_struct(std::any::type_name::<Self>())
+            .field("fd", &fd)
+            .finish()
     }
 }
 
-unsafe impl<'ring> Send for SubmissionQueue<'ring> { }
-unsafe impl<'ring> Sync for SubmissionQueue<'ring> { }
+unsafe impl<'ring> Send for SubmissionQueue<'ring> {}
+unsafe impl<'ring> Sync for SubmissionQueue<'ring> {}
 
 pub(crate) unsafe fn prepare_sqe<'a>(ring: &mut uring_sys::io_uring) -> Option<SQE<'a>> {
     let sqe = uring_sys::io_uring_get_sqe(ring);
@@ -152,9 +157,10 @@ pub(crate) unsafe fn prepare_sqe<'a>(ring: &mut uring_sys::io_uring) -> Option<S
     }
 }
 
-pub(crate) unsafe fn prepare_sqes<'a>(sq: &mut uring_sys::io_uring_sq, count: u32)
-    -> Option<SQEs<'a>>
-{
+pub(crate) unsafe fn prepare_sqes<'a>(
+    sq: &mut uring_sys::io_uring_sq,
+    count: u32,
+) -> Option<SQEs<'a>> {
     atomic::fence(Ordering::Acquire);
 
     let head: u32 = *sq.khead;
