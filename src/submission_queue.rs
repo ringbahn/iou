@@ -7,6 +7,7 @@ use std::sync::atomic::{self, Ordering};
 use std::time::Duration;
 
 use super::{resultify, IoUring, SQEs, SQE};
+use bitflags::_core::num::Wrapping;
 
 /// The queue of pending IO events.
 ///
@@ -163,13 +164,20 @@ pub(crate) unsafe fn prepare_sqes<'a>(
 ) -> Option<SQEs<'a>> {
     atomic::fence(Ordering::Acquire);
 
-    let head: u32 = *sq.khead;
-    let next: u32 = sq.sqe_tail + count;
+    let cap = Wrapping(*sq.kring_entries as u32);
+    let count = Wrapping(count);
+    // Protect "next - head <= cap" from over-floating caused by `count`
+    if count > cap {
+        return None;
+    }
 
-    if next - head <= *sq.kring_entries {
+    let head = Wrapping(*sq.khead as u32);
+    let next = Wrapping(sq.sqe_tail as u32) + count;
+
+    if next - head <= cap {
         let sqe = sq.sqes.offset((sq.sqe_tail & *sq.kring_mask) as isize);
-        sq.sqe_tail = next;
-        Some(SQEs::new(slice::from_raw_parts_mut(sqe, count as usize)))
+        sq.sqe_tail = next.0;
+        Some(SQEs::new(slice::from_raw_parts_mut(sqe, count.0 as usize)))
     } else {
         None
     }
