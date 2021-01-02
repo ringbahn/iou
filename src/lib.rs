@@ -433,9 +433,10 @@ unsafe impl Send for IoUring {}
 unsafe impl Sync for IoUring {}
 
 fn resultify(x: i32) -> io::Result<u32> {
-    match x >= 0 {
-        true => Ok(x as u32),
-        false => Err(io::Error::from_raw_os_error(-x)),
+    if x >= 0 {
+        Ok(x as u32)
+    } else {
+        Err(io::Error::from_raw_os_error(-x))
     }
 }
 

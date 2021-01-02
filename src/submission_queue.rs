@@ -77,11 +77,11 @@ impl<'ring> SubmissionQueue<'ring> {
     /// # Ok(())
     /// # }
     ///
-    pub fn prepare_sqe<'a>(&'a mut self) -> Option<SQE<'a>> {
+    pub fn prepare_sqe(&mut self) -> Option<SQE> {
         unsafe { prepare_sqe(self.ring.as_mut()) }
     }
 
-    pub fn prepare_sqes<'a>(&'a mut self, count: u32) -> Option<SQEs<'a>> {
+    pub fn prepare_sqes(&mut self, count: u32) -> Option<SQEs> {
         unsafe {
             let sq: &mut uring_sys::io_uring_sq = &mut (*self.ring.as_ptr()).sq;
             prepare_sqes(sq, count)
