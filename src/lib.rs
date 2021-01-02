@@ -185,6 +185,13 @@ impl IoUring {
         flags: SetupFlags,
         features: SetupFeatures,
     ) -> io::Result<IoUring> {
+        // TODO: add Builder to support SQ_AFF and ATTACH_WQ, which needs set more fields in the
+        // uring_sys::io_uring_params struct.
+
+        if flags & (SetupFlags::SQ_AFF | SetupFlags::ATTACH_WQ) != SetupFlags::empty() {
+            return Err(io::Error::from_raw_os_error(libc::EINVAL));
+        }
+
         unsafe {
             let mut params: uring_sys::io_uring_params = mem::zeroed();
             params.flags = flags.bits();
