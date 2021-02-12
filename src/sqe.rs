@@ -190,7 +190,7 @@ impl<'a> SQE<'a> {
         fd: impl UringFd,
         buf: &[u8],
         offset: u64,
-        buf_index: usize,
+        buf_index: u32,
     ) {
         let len = buf.len();
         let addr = buf.as_ptr();
