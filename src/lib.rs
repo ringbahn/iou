@@ -33,7 +33,7 @@
 //! after that specified time. This also means that when processing completion events, you need to
 //! be prepared for the possibility that the completion represents a timeout and not a normal IO
 //! event (`CQE` has a method to check for this).
-
+#![warn(rust_2018_idioms)]
 /// Types related to completion queue events.
 pub mod cqe;
 /// Types related to submission queue events.
@@ -360,7 +360,7 @@ impl IoUring {
 }
 
 impl fmt::Debug for IoUring {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct(std::any::type_name::<Self>()).field("fd", &self.ring.ring_fd).finish()
     }
 }
