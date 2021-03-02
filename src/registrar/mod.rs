@@ -250,7 +250,7 @@ impl<'ring> Registrar<'ring> {
 }
 
 impl fmt::Debug for Registrar<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let fd = unsafe { self.ring.as_ref().ring_fd };
         f.debug_struct(std::any::type_name::<Self>()).field("fd", &fd).finish()
     }
