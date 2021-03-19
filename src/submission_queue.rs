@@ -2,7 +2,6 @@ use std::fmt;
 use std::io;
 use std::ptr::NonNull;
 use std::marker::PhantomData;
-use std::slice;
 use std::time::Duration;
 use std::sync::atomic::{self, Ordering};
 
@@ -152,7 +151,7 @@ pub(crate) unsafe fn prepare_sqe<'a>(ring: &mut uring_sys::io_uring) -> Option<S
     }
 }
 
-pub(crate) unsafe fn prepare_sqes<'a>(sq: &mut uring_sys::io_uring_sq, count: u32)
+pub(crate) unsafe fn prepare_sqes<'a>(sq: &'a mut uring_sys::io_uring_sq, count: u32)
     -> Option<SQEs<'a>>
 {
     atomic::fence(Ordering::Acquire);
@@ -161,9 +160,9 @@ pub(crate) unsafe fn prepare_sqes<'a>(sq: &mut uring_sys::io_uring_sq, count: u3
     let next: u32 = sq.sqe_tail + count;
 
     if next - head <= *sq.kring_entries {
-        let sqe = sq.sqes.offset((sq.sqe_tail & *sq.kring_mask) as isize);
+        let first = sq.sqe_tail;
         sq.sqe_tail = next;
-        Some(SQEs::new(slice::from_raw_parts_mut(sqe, count as usize)))
+        Some(SQEs::new(sq, first, count))
     } else {
         None
     }
